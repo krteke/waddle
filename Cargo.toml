@@ -1,0 +1,18 @@
+[package]
+name = "waddle"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+graphql_client = "0.16.0"
+oo7 = "0.6.0"
+relm4 = { version = "0.11.0", features = ["libadwaita", "gnome_50"] }
+reqwest = "0.13.5"
+toml = "1.1.8"
+tokio = "1.53.3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
