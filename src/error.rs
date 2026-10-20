@@ -1,5 +1,3 @@
-use std::net::AddrParseError;
-
 use relm4::gtk::gio;
 use rust_i18n::t;
 
@@ -72,11 +70,11 @@ impl From<oo7::Error> for CredentialError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("Could not parse IP address {value:?}: {source}")]
-pub struct InvalidIpAddress {
+#[error("Could not parse server URL {value:?}: {source}")]
+pub struct InvalidServerUrl {
     pub value: String,
     #[source]
-    pub source: AddrParseError,
+    pub source: url::ParseError,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -88,9 +86,7 @@ pub enum ServerSettingsError {
     #[error("Server name {name:?} already exists")]
     DuplicateName { name: String },
     #[error(transparent)]
-    InvalidIp(#[from] InvalidIpAddress),
-    #[error("Invalid port {value:?}; expected an integer from 1 to 65535")]
-    InvalidPort { value: String },
+    InvalidUrl(#[from] InvalidServerUrl),
     #[error("Could not save settings: {0}")]
     Save(#[from] gio::glib::BoolError),
 }
@@ -101,8 +97,7 @@ impl ServerSettingsError {
             Self::DeleteCredentials(_) => t!("error.delete_credentials").to_string(),
             Self::EmptyName => t!("error.empty_name").to_string(),
             Self::DuplicateName { .. } => t!("error.duplicate_name").to_string(),
-            Self::InvalidIp(_) => t!("error.invalid_ip").to_string(),
-            Self::InvalidPort { .. } => t!("error.invalid_port").to_string(),
+            Self::InvalidUrl(_) => t!("error.invalid_url").to_string(),
             Self::Save(_) => t!("error.save").to_string(),
         }
     }
@@ -113,12 +108,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn invalid_ip_message_does_not_expose_the_address_or_parse_error() {
-        let error = ServerSettingsError::InvalidIp(InvalidIpAddress {
-            value: "not-an-ip".into(),
-            source: "not-an-ip".parse::<std::net::IpAddr>().unwrap_err(),
+    fn invalid_url_message_does_not_expose_the_address_or_parse_error() {
+        let error = ServerSettingsError::InvalidUrl(InvalidServerUrl {
+            value: "not-a-url".into(),
+            source: "not-a-url".parse::<reqwest::Url>().unwrap_err(),
         });
-        assert_eq!(error.user_message(), "Enter a valid IP address.");
+        assert_eq!(error.user_message(), "Enter a valid server URL.");
     }
 
     #[test]

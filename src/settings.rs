@@ -1,17 +1,15 @@
-use std::net::IpAddr;
-
 use gio::prelude::*;
 use relm4::gtk::gio;
+use url::Url;
 
-use crate::error::{InvalidIpAddress, ServerSettingsError};
+use crate::error::{InvalidServerUrl, ServerSettingsError};
 
 pub const APPLICATION_ID: &str = "io.github.krteke.Waddle";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Server {
     pub name: String,
-    pub ip: Result<IpAddr, InvalidIpAddress>,
-    pub port: u16,
+    pub url: Result<Url, InvalidServerUrl>,
     pub is_default: bool,
     pub logged_out: bool,
 }
@@ -23,21 +21,20 @@ pub struct ServerSettings {
 
 impl ServerSettings {
     pub fn load(settings: gio::Settings) -> Self {
-        let records = settings.get::<Vec<(String, String, u16, bool, bool)>>("servers");
+        let records = settings.get::<Vec<(String, String, bool, bool)>>("servers");
 
         let servers = records
             .into_iter()
-            .map(|(name, ip, port, is_default, logged_out)| {
-                let ip = ip.parse().map_err(|source| {
-                    let error = InvalidIpAddress { value: ip, source };
+            .map(|(name, url, is_default, logged_out)| {
+                let url = url.parse().map_err(|source| {
+                    let error = InvalidServerUrl { value: url, source };
                     tracing::warn!(server = %name, error = %error, "Could not parse saved server address");
                     error
                 });
 
                 Server {
                     name,
-                    ip,
-                    port,
+                    url,
                     is_default,
                     logged_out,
                 }
@@ -70,8 +67,7 @@ impl ServerSettings {
         &mut self,
         index: Option<usize>,
         name: &str,
-        ip: &str,
-        port: &str,
+        address: &str,
         make_default: bool,
     ) -> Result<(), ServerSettingsError> {
         let name = name.trim();
@@ -88,18 +84,10 @@ impl ServerSettings {
             return Err(ServerSettingsError::DuplicateName { name: name.into() });
         }
 
-        let ip = ip.trim();
-        let ip = ip.parse().map_err(|source| InvalidIpAddress {
-            value: ip.into(),
+        let url = address.parse().map_err(|source| InvalidServerUrl {
+            value: address.into(),
             source,
         })?;
-
-        let port = port
-            .trim()
-            .parse::<u16>()
-            .ok()
-            .filter(|port| *port > 0)
-            .ok_or_else(|| ServerSettingsError::InvalidPort { value: port.into() })?;
 
         let is_default = self.servers.is_empty()
             || make_default
@@ -111,8 +99,7 @@ impl ServerSettings {
 
         let server = Server {
             name: name.into(),
-            ip: Ok(ip),
-            port,
+            url: Ok(url),
             is_default,
             logged_out: index.is_some_and(|index| self.servers[index].logged_out),
         };
@@ -169,11 +156,10 @@ impl ServerSettings {
             .map(|server| {
                 (
                     server.name.as_str(),
-                    match &server.ip {
-                        Ok(ip) => ip.to_string(),
+                    match &server.url {
+                        Ok(url) => url.to_string(),
                         Err(error) => error.value.clone(),
                     },
-                    server.port,
                     server.is_default,
                     server.logged_out,
                 )
@@ -212,11 +198,11 @@ pub(crate) mod tests {
         let backend = settings();
         let mut config = ServerSettings::load(backend.clone());
         config
-            .save_server(None, "Home", "127.0.0.1", "2023", false)
+            .save_server(None, "Home", "http://127.0.0.1:2023/", false)
             .unwrap();
         config.set_logged_out(0, true).unwrap();
         config
-            .save_server(Some(0), "Renamed", "::1", "8080", false)
+            .save_server(Some(0), "Renamed", "http://[::1]:8080/", false)
             .unwrap();
         assert!(ServerSettings::load(backend).servers()[0].logged_out);
     }
@@ -226,10 +212,10 @@ pub(crate) mod tests {
         let backend = settings();
         let mut config = ServerSettings::load(backend.clone());
         config
-            .save_server(None, "Home", "127.0.0.1", "2023", false)
+            .save_server(None, "Home", "http://127.0.0.1:2023/", false)
             .unwrap();
         config
-            .save_server(None, "Office", "::1", "8080", false)
+            .save_server(None, "Office", "http://[::1]:8080/", false)
             .unwrap();
         assert!(!config.servers()[0].logged_out);
         config.set_logged_out(0, true).unwrap();
@@ -260,8 +246,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Remove", "127.0.0.1", 2023u16, false, true),
-                    ("Keep", "::1", 8080u16, true, true),
+                    ("Remove", "http://127.0.0.1:2023/", false, true),
+                    ("Keep", "http://[::1]:8080/", true, true),
                 ],
             )
             .unwrap();
@@ -279,8 +265,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Keep", "bad-ip", 2023u16, false, true),
-                    ("Remove", "::1", 8080u16, true, false),
+                    ("Keep", "not-a-url", false, true),
+                    ("Remove", "http://[::1]:8080/", true, false),
                 ],
             )
             .unwrap();
@@ -295,7 +281,7 @@ pub(crate) mod tests {
     fn deleting_last_server_leaves_no_default() {
         let backend = settings();
         backend
-            .set("servers", vec![("Last", "bad-ip", 2023u16, true, true)])
+            .set("servers", vec![("Last", "not-a-url", true, true)])
             .unwrap();
         let mut config = ServerSettings::load(backend.clone());
         config.delete_server(0).unwrap();
@@ -315,8 +301,7 @@ pub(crate) mod tests {
             settings: backend,
             servers: vec![Server {
                 name: "Keep".into(),
-                ip: Ok("127.0.0.1".parse().unwrap()),
-                port: 2023,
+                url: Ok("http://127.0.0.1:2023/".parse().unwrap()),
                 is_default: true,
                 logged_out: true,
             }],
@@ -327,6 +312,16 @@ pub(crate) mod tests {
             Err(ServerSettingsError::Save(_))
         ));
         assert_eq!(config.servers(), before);
+    }
+
+    #[test]
+    fn domain_address_survives_reopening_settings() {
+        let backend = settings();
+        let mut config = ServerSettings::load(backend.clone());
+        config
+            .save_server(None, "Local", "http://localhost:8080/", false)
+            .unwrap();
+        assert_eq!(ServerSettings::load(backend).servers(), config.servers());
     }
 
     #[test]
@@ -343,15 +338,15 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Broken", "bad-ip", 2023u16, true, false),
-                    ("Office", "::1", 8080u16, false, false),
+                    ("Broken", "not-a-url", true, false),
+                    ("Office", "http://[::1]:8080/", false, false),
                 ],
             )
             .unwrap();
         let mut config = ServerSettings::load(settings.clone());
 
         config
-            .save_server(Some(0), " Repaired ", " 127.0.0.1 ", " 9090 ", false)
+            .save_server(Some(0), " Repaired ", "http://127.0.0.1:9090/", false)
             .unwrap();
 
         assert_eq!(
@@ -359,15 +354,13 @@ pub(crate) mod tests {
             &[
                 Server {
                     name: "Repaired".into(),
-                    ip: Ok("127.0.0.1".parse().unwrap()),
-                    port: 9090,
+                    url: Ok("http://127.0.0.1:9090/".parse().unwrap()),
                     is_default: true,
                     logged_out: false,
                 },
                 Server {
                     name: "Office".into(),
-                    ip: Ok("::1".parse().unwrap()),
-                    port: 8080,
+                    url: Ok("http://[::1]:8080/".parse().unwrap()),
                     is_default: false,
                     logged_out: false,
                 },
@@ -382,22 +375,22 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Home", "127.0.0.1", 2023u16, true, false),
-                    ("Office", "::1", 8080u16, false, false),
+                    ("Home", "http://127.0.0.1:2023/", true, false),
+                    ("Office", "http://[::1]:8080/", false, false),
                 ],
             )
             .unwrap();
         let mut config = ServerSettings::load(settings.clone());
 
         config
-            .save_server(Some(1), "Office", "::1", "9090", true)
+            .save_server(Some(1), "Office", "http://[::1]:9090/", true)
             .unwrap();
 
         assert_eq!(
-            settings.get::<Vec<(String, String, u16, bool, bool)>>("servers"),
+            settings.get::<Vec<(String, String, bool, bool)>>("servers"),
             vec![
-                ("Home".into(), "127.0.0.1".into(), 2023, false, false),
-                ("Office".into(), "::1".into(), 9090, true, false),
+                ("Home".into(), "http://127.0.0.1:2023/".into(), false, false),
+                ("Office".into(), "http://[::1]:9090/".into(), true, false),
             ]
         );
     }
@@ -409,8 +402,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Home", "127.0.0.1", 2023u16, true, false),
-                    ("Office", "::1", 8080u16, false, false),
+                    ("Home", "http://127.0.0.1:2023/", true, false),
+                    ("Office", "http://[::1]:8080/", false, false),
                 ],
             )
             .unwrap();
@@ -418,7 +411,7 @@ pub(crate) mod tests {
         let before = config.servers().to_vec();
 
         assert!(matches!(
-            config.save_server(Some(1), " Home ", "::1", "9090", true),
+            config.save_server(Some(1), " Home ", "http://[::1]:9090/", true),
             Err(ServerSettingsError::DuplicateName { .. })
         ));
 
@@ -430,14 +423,17 @@ pub(crate) mod tests {
     fn editing_rejects_invalid_addresses_without_changing_settings() {
         let settings = settings();
         settings
-            .set("servers", vec![("Home", "127.0.0.1", 2023u16, true, false)])
+            .set(
+                "servers",
+                vec![("Home", "http://127.0.0.1:2023/", true, false)],
+            )
             .unwrap();
         let mut config = ServerSettings::load(settings.clone());
         let before = config.servers().to_vec();
 
         assert!(matches!(
-            config.save_server(Some(0), "Renamed", "bad-ip", "9090", true),
-            Err(ServerSettingsError::InvalidIp(_))
+            config.save_server(Some(0), "Renamed", "http://bad host:9090/", true),
+            Err(ServerSettingsError::InvalidUrl(_))
         ));
 
         assert_eq!(config.servers(), before);
@@ -449,7 +445,7 @@ pub(crate) mod tests {
         let settings = settings();
         let mut config = ServerSettings::load(settings.clone());
         config
-            .save_server(None, "Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "http://192.168.1.2:2023/", false)
             .unwrap();
 
         let reopened = ServerSettings::load(settings);
@@ -457,8 +453,7 @@ pub(crate) mod tests {
             reopened.servers(),
             &[Server {
                 name: "Home".into(),
-                ip: Ok("192.168.1.2".parse().unwrap()),
-                port: 2023,
+                url: Ok("http://192.168.1.2:2023/".parse().unwrap()),
                 is_default: true,
                 logged_out: false,
             }]
@@ -469,10 +464,10 @@ pub(crate) mod tests {
     fn adding_another_server_preserves_existing_default() {
         let mut config = ServerSettings::load(settings());
         config
-            .save_server(None, "Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "http://192.168.1.2:2023/", false)
             .unwrap();
         config
-            .save_server(None, "Office", "10.0.0.2", "8080", false)
+            .save_server(None, "Office", "http://10.0.0.2:8080/", false)
             .unwrap();
 
         assert_eq!(config.default_server_index(), Some(0));
@@ -483,10 +478,10 @@ pub(crate) mod tests {
     fn adding_an_explicit_default_replaces_previous_default() {
         let mut config = ServerSettings::load(settings());
         config
-            .save_server(None, "Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "http://192.168.1.2:2023/", false)
             .unwrap();
         config
-            .save_server(None, "Office", "10.0.0.2", "8080", true)
+            .save_server(None, "Office", "http://10.0.0.2:8080/", true)
             .unwrap();
 
         assert_eq!(config.default_server_index(), Some(1));
@@ -498,10 +493,10 @@ pub(crate) mod tests {
         let settings = settings();
         let mut config = ServerSettings::load(settings.clone());
         config
-            .save_server(None, "Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "http://192.168.1.2:2023/", false)
             .unwrap();
         config
-            .save_server(None, "Office", "10.0.0.2", "8080", false)
+            .save_server(None, "Office", "http://10.0.0.2:8080/", false)
             .unwrap();
         config.set_logged_out(0, true).unwrap();
         config.set_default(1).unwrap();
@@ -517,12 +512,12 @@ pub(crate) mod tests {
         let settings = settings();
         let mut config = ServerSettings::load(settings.clone());
         config
-            .save_server(None, "Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "http://192.168.1.2:2023/", false)
             .unwrap();
         let before = config.servers().to_vec();
 
         assert!(
-            matches!(config.save_server(None, " Home ", "10.0.0.2", "8080", true), Err(ServerSettingsError::DuplicateName { name }) if name == "Home")
+            matches!(config.save_server(None, " Home ", "http://10.0.0.2:8080/", true), Err(ServerSettingsError::DuplicateName { name }) if name == "Home")
         );
         assert_eq!(ServerSettings::load(settings).servers(), before);
     }
@@ -531,58 +526,70 @@ pub(crate) mod tests {
     fn empty_name_is_rejected() {
         let mut config = ServerSettings::load(settings());
         assert!(matches!(
-            config.save_server(None, "  ", "127.0.0.1", "2023", false),
+            config.save_server(None, "  ", "http://127.0.0.1:2023/", false),
             Err(ServerSettingsError::EmptyName)
         ));
         assert!(config.servers().is_empty());
     }
 
     #[test]
-    fn non_ip_address_is_rejected() {
+    fn invalid_url_is_rejected() {
         let mut config = ServerSettings::load(settings());
-        assert!(
-            matches!(config.save_server(None, "Home", "https://example.com", "2023", false), Err(ServerSettingsError::InvalidIp(InvalidIpAddress { value, .. })) if value == "https://example.com")
-        );
+        assert!(matches!(
+            config.save_server(None, "Home", "http://bad host:2023", false),
+            Err(ServerSettingsError::InvalidUrl(_))
+        ));
         assert!(config.servers().is_empty());
     }
 
     #[test]
-    fn zero_port_is_rejected() {
-        let mut config = ServerSettings::load(settings());
-        assert!(
-            matches!(config.save_server(None, "Home", "127.0.0.1", "0", false), Err(ServerSettingsError::InvalidPort { value }) if value == "0")
-        );
+    fn default_http_port_is_normalized_in_the_saved_url() {
+        let backend = settings();
+        let mut config = ServerSettings::load(backend.clone());
+        config
+            .save_server(None, "Home", "http://localhost:80", false)
+            .unwrap();
+        let reopened = ServerSettings::load(backend);
+        let url = reopened.servers()[0].url.as_ref().unwrap();
+        assert_eq!(url.as_str(), "http://localhost/");
+        assert_eq!(url.port_or_known_default(), Some(80));
     }
 
     #[test]
-    fn out_of_range_port_is_rejected() {
+    fn out_of_range_port_is_rejected_by_url_parser() {
         let mut config = ServerSettings::load(settings());
-        assert!(
-            matches!(config.save_server(None, "Home", "127.0.0.1", "65536", false), Err(ServerSettingsError::InvalidPort { value }) if value == "65536")
-        );
+        assert!(matches!(
+            config.save_server(None, "Home", "http://localhost:65536", false),
+            Err(ServerSettingsError::InvalidUrl(InvalidServerUrl {
+                source: url::ParseError::InvalidPort,
+                ..
+            }))
+        ));
     }
 
     #[test]
     fn ipv6_address_can_be_saved() {
         let mut config = ServerSettings::load(settings());
         config
-            .save_server(None, " IPv6 ", " ::1 ", " 65535 ", false)
+            .save_server(None, " IPv6 ", "http://[::1]:65535/", false)
             .unwrap();
         let server = &config.servers()[config.default_server_index().unwrap()];
         assert_eq!(server.name, "IPv6");
-        assert_eq!(server.ip, Ok("::1".parse::<IpAddr>().unwrap()));
-        assert_eq!(server.port, 65535);
+        assert_eq!(
+            server.url,
+            Ok("http://[::1]:65535/".parse::<Url>().unwrap())
+        );
     }
 
     #[test]
-    fn invalid_ip_keeps_its_server_record_and_does_not_stop_loading() {
+    fn invalid_url_keeps_its_server_record_and_does_not_stop_loading() {
         let settings = settings();
         settings
             .set(
                 "servers",
                 vec![
-                    ("Broken", "not-an-ip", 2023u16, true, false),
-                    ("Home", "127.0.0.1", 8080u16, false, false),
+                    ("Broken", "not-a-url", true, false),
+                    ("Home", "http://127.0.0.1:8080/", false, false),
                 ],
             )
             .unwrap();
@@ -591,32 +598,31 @@ pub(crate) mod tests {
         assert_eq!(config.servers().len(), 2);
         let broken = &config.servers()[0];
         assert_eq!(broken.name, "Broken");
-        assert_eq!(broken.port, 2023);
         assert!(broken.is_default);
-        assert_eq!(broken.ip.as_ref().unwrap_err().value, "not-an-ip");
+        assert_eq!(broken.url.as_ref().unwrap_err().value, "not-a-url");
         assert_eq!(config.servers()[1].name, "Home");
-        assert_eq!(config.servers()[1].ip, Ok("127.0.0.1".parse().unwrap()));
+        assert_eq!(
+            config.servers()[1].url,
+            Ok("http://127.0.0.1:8080/".parse().unwrap())
+        );
     }
 
     #[test]
     fn adding_a_server_preserves_unparseable_saved_addresses() {
         let settings = settings();
         settings
-            .set(
-                "servers",
-                vec![("Broken", "not-an-ip", 2023u16, true, false)],
-            )
+            .set("servers", vec![("Broken", "not-a-url", true, false)])
             .unwrap();
         let mut config = ServerSettings::load(settings.clone());
         config
-            .save_server(None, "Home", "127.0.0.1", "8080", false)
+            .save_server(None, "Home", "http://127.0.0.1:8080/", false)
             .unwrap();
 
         assert_eq!(
-            settings.get::<Vec<(String, String, u16, bool, bool)>>("servers"),
+            settings.get::<Vec<(String, String, bool, bool)>>("servers"),
             vec![
-                ("Broken".into(), "not-an-ip".into(), 2023, true, false),
-                ("Home".into(), "127.0.0.1".into(), 8080, false, false),
+                ("Broken".into(), "not-a-url".into(), true, false),
+                ("Home".into(), "http://127.0.0.1:8080/".into(), false, false),
             ]
         );
     }
@@ -628,8 +634,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Broken", "not-an-ip", 2023u16, true, false),
-                    ("Home", "127.0.0.1", 8080u16, false, false),
+                    ("Broken", "not-a-url", true, false),
+                    ("Home", "http://127.0.0.1:8080/", false, false),
                 ],
             )
             .unwrap();
@@ -637,10 +643,10 @@ pub(crate) mod tests {
         config.set_default(1).unwrap();
 
         assert_eq!(
-            settings.get::<Vec<(String, String, u16, bool, bool)>>("servers"),
+            settings.get::<Vec<(String, String, bool, bool)>>("servers"),
             vec![
-                ("Broken".into(), "not-an-ip".into(), 2023, false, false),
-                ("Home".into(), "127.0.0.1".into(), 8080, true, false),
+                ("Broken".into(), "not-a-url".into(), false, false),
+                ("Home".into(), "http://127.0.0.1:8080/".into(), true, false),
             ]
         );
     }
@@ -655,7 +661,7 @@ pub(crate) mod tests {
         let mut config = ServerSettings::load(settings);
 
         assert!(matches!(
-            config.save_server(None, "Home", "127.0.0.1", "2023", false),
+            config.save_server(None, "Home", "http://127.0.0.1:2023/", false),
             Err(ServerSettingsError::Save(_))
         ));
         assert!(config.servers().is_empty());
@@ -671,10 +677,10 @@ pub(crate) mod tests {
         let mut config =
             ServerSettings::load(gio::Settings::new_full(&schema, Some(&backend), None));
         config
-            .save_server(None, "Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "http://192.168.1.2:2023/", false)
             .unwrap();
         config
-            .save_server(None, "Office", "::1", "8080", true)
+            .save_server(None, "Office", "http://[::1]:8080/", true)
             .unwrap();
         config.set_logged_out(0, true).unwrap();
         gio::Settings::sync();
@@ -689,8 +695,7 @@ pub(crate) mod tests {
             &reopened.servers()[reopened.default_server_index().unwrap()],
             &Server {
                 name: "Office".into(),
-                ip: Ok("::1".parse().unwrap()),
-                port: 8080,
+                url: Ok("http://[::1]:8080/".parse().unwrap()),
                 is_default: true,
                 logged_out: false,
             }

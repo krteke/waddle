@@ -63,9 +63,15 @@ fn click_icon(root: &impl IsA<gtk::Widget>, icon: &str) {
 }
 
 fn fill(dialog: &adw::Dialog, title: &str, value: &str) {
-    find_widget::<adw::EntryRow>(dialog, &|row| row.title() == title)
+    if let Some(row) = find_widget::<adw::EntryRow>(dialog, &|row| row.title() == title) {
+        row.set_text(value);
+    } else {
+        find_widget::<gtk::Entry>(dialog, &|entry| {
+            entry.tooltip_text().as_deref() == Some(title)
+        })
         .unwrap()
         .set_text(value);
+    }
 }
 
 fn password(dialog: &adw::Dialog, value: &str) {
@@ -139,8 +145,7 @@ fn long_server_menu_stays_scrollable() {
     let servers: Vec<_> = (0..20)
         .map(|index| settings::Server {
             name: format!("Server {index}"),
-            ip: Ok(std::net::Ipv4Addr::LOCALHOST.into()),
-            port: 8080,
+            url: Ok("http://localhost:8080/".parse().unwrap()),
             is_default: index == 0,
             logged_out: false,
         })
@@ -163,7 +168,7 @@ fn server_management_and_authentication_lifecycle() {
     let office = Wing::start();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {
-        Api::new(office.address)
+        Api::new(format!("http://{}", office.address).parse().unwrap())
             .authenticate(
                 &Credentials::new("office-admin", "office-password-42"),
                 true,
@@ -253,8 +258,19 @@ fn server_management_and_authentication_lifecycle() {
     click(window, "Add Server");
     wait_for(|| window.visible_dialog().is_some());
     fill(&dialog, "Server Name", "Home");
-    fill(&dialog, "IP Address", "127.0.0.1");
+    fill(&dialog, "Host", "localhost");
     fill(&dialog, "Port", &home.address.port().to_string());
+    capture(window, "server-address");
+    fill(&dialog, "Host", "bad host");
+    click(&dialog, "Connect");
+    wait_for(|| {
+        find_widget::<gtk::Label>(&dialog, &|label| {
+            label.is_visible() && label.text() == "Enter a valid server URL."
+        })
+        .is_some()
+    });
+    assert!(ServerSettings::load(settings.clone()).servers().is_empty());
+    fill(&dialog, "Host", "localhost");
     click(&dialog, "Connect");
 
     wait_for(|| {
@@ -281,7 +297,7 @@ fn server_management_and_authentication_lifecycle() {
     });
     assert!(
         !runtime
-            .block_on(Api::new(home.address).has_admin())
+            .block_on(Api::new(format!("http://{}", home.address).parse().unwrap()).has_admin())
             .unwrap()
     );
     password(&login, "home-password-42");
@@ -375,11 +391,37 @@ fn server_management_and_authentication_lifecycle() {
     );
 
     click_icon(window, "network-server-symbolic");
+    let home_row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Home").unwrap();
+    assert_eq!(
+        home_row.subtitle().as_deref(),
+        Some(format!("http://localhost:{}/", home.address.port()).as_str())
+    );
+    click_icon(&home_row, "document-edit-symbolic");
+    wait_for(|| window.visible_dialog().is_some());
+    let edit = window.visible_dialog().unwrap();
+    assert_eq!(
+        find_widget::<gtk::Entry>(&edit, &|entry| {
+            entry.tooltip_text().as_deref() == Some("Host")
+        })
+        .unwrap()
+        .text(),
+        "localhost"
+    );
+    assert_eq!(
+        find_widget::<gtk::Entry>(&edit, &|entry| {
+            entry.tooltip_text().as_deref() == Some("Port")
+        })
+        .unwrap()
+        .text(),
+        home.address.port().to_string()
+    );
+    click(&edit, "Cancel");
+    wait_for(|| window.visible_dialog().is_none());
     click_icon(window, "list-add-symbolic");
     wait_for(|| window.visible_dialog().is_some());
     let dialog = window.visible_dialog().unwrap();
     fill(&dialog, "Server Name", "Home");
-    fill(&dialog, "IP Address", "127.0.0.1");
+    fill(&dialog, "Host", "localhost");
     fill(&dialog, "Port", &office.address.port().to_string());
     click(&dialog, "Connect");
     wait_for(|| {
@@ -649,8 +691,13 @@ fn server_management_and_authentication_lifecycle() {
         .set(
             "servers",
             vec![
-                ("Broken", "not-an-ip", home.address.port(), true, false),
-                ("Office", "127.0.0.1", office.address.port(), false, false),
+                ("Broken", "not-a-url".to_string(), true, false),
+                (
+                    "Office",
+                    format!("http://127.0.0.1:{}/", office.address.port()),
+                    false,
+                    false,
+                ),
             ],
         )
         .unwrap();
@@ -661,7 +708,7 @@ fn server_management_and_authentication_lifecycle() {
     window.present();
     wait_for(|| {
         find_widget::<gtk::Label>(window, &|label| {
-            label.is_mapped() && label.text() == "Invalid IP address"
+            label.is_mapped() && label.text() == "Invalid server URL"
         })
         .is_some()
     });
@@ -681,7 +728,7 @@ fn server_management_and_authentication_lifecycle() {
     assert!(!invalid.is_sensitive());
     assert_eq!(
         invalid.tooltip_text().as_deref(),
-        Some("Invalid IP address")
+        Some("Invalid server URL")
     );
     selector.popdown();
     click_icon(window, "network-server-symbolic");
@@ -694,23 +741,25 @@ fn server_management_and_authentication_lifecycle() {
     wait_for(|| window.visible_dialog().is_some());
     let dialog = window.visible_dialog().unwrap();
     assert_eq!(
-        find_widget::<adw::EntryRow>(&dialog, &|row| row.title() == "IP Address")
-            .unwrap()
-            .text(),
-        "not-an-ip"
+        find_widget::<gtk::Entry>(&dialog, &|entry| entry.tooltip_text().as_deref()
+            == Some("Host"))
+        .unwrap()
+        .text(),
+        "not-a-url"
     );
-    fill(&dialog, "IP Address", "127.0.0.1");
+    fill(&dialog, "Host", "localhost");
     click(&dialog, "Cancel");
     wait_for(|| window.visible_dialog().is_none());
     assert_eq!(
-        settings.get::<Vec<(String, String, u16, bool, bool)>>("servers")[0].1,
-        "not-an-ip"
+        settings.get::<Vec<(String, String, bool, bool)>>("servers")[0].1,
+        "not-a-url"
     );
     let broken = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Broken").unwrap();
     click_icon(&broken, "document-edit-symbolic");
     wait_for(|| window.visible_dialog().is_some());
     fill(&dialog, "Server Name", "Home");
-    fill(&dialog, "IP Address", "127.0.0.1");
+    fill(&dialog, "Host", "localhost");
+    fill(&dialog, "Port", &home.address.port().to_string());
     click(&dialog, "Save");
     wait_for(|| window.visible_dialog().is_none());
     assert_eq!(navigation.visible_page_tag().as_deref(), Some("servers"));

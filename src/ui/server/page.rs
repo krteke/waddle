@@ -132,14 +132,13 @@ impl ServerPage {
                 .use_markup(false)
                 .title_lines(1)
                 .subtitle_lines(1)
-                .activatable(server.ip.is_ok())
+                .activatable(server.url.is_ok())
                 .build();
-            match &server.ip {
-                Ok(ip) => {
-                    row.set_subtitle(&std::net::SocketAddr::new(*ip, server.port).to_string())
-                }
+
+            match &server.url {
+                Ok(url) => row.set_subtitle(url.as_str()),
                 Err(_) => {
-                    row.set_subtitle(t!("server.invalid_ip").as_ref());
+                    row.set_subtitle(t!("server.invalid_url").as_ref());
                     let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
                     icon.add_css_class("error");
                     row.add_prefix(&icon);
@@ -156,7 +155,7 @@ impl ServerPage {
                 } else {
                     t!("server.make_default").to_string()
                 })
-                .sensitive(!server.is_default && server.ip.is_ok())
+                .sensitive(!server.is_default && server.url.is_ok())
                 .valign(gtk::Align::Center)
                 .build();
             default.add_css_class("flat");
@@ -213,9 +212,9 @@ impl ServerPage {
             } else {
                 indicator.add_css_class("dim-label");
             }
-            indicator.set_visible(server.ip.is_ok());
+            indicator.set_visible(server.url.is_ok());
             row.add_suffix(&indicator);
-            if server.ip.is_ok() {
+            if server.url.is_ok() {
                 let input = self.input.clone();
                 row.connect_activated(move |_| {
                     input.emit(AppMsg::OpenServer(index));

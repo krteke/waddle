@@ -15,7 +15,11 @@ struct HealthServer {
 impl HealthServer {
     async fn start(status: &str, health_response: &str) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let api = Api::new(listener.local_addr().unwrap());
+        let api = Api::new(
+            format!("http://{}", listener.local_addr().unwrap())
+                .parse()
+                .unwrap(),
+        );
         let requests = Arc::new(Mutex::new(Vec::new()));
         let received = requests.clone();
         let status = status.to_owned();
@@ -128,7 +132,7 @@ fn healthy_server_checks_administrator_after_health_check() {
 
 async fn account() -> (crate::test_support::Wing, Api, Credentials, String) {
     let wing = crate::test_support::Wing::start();
-    let api = Api::new(wing.address);
+    let api = Api::new(format!("http://{}", wing.address).parse().unwrap());
     let credentials = Credentials::new("admin", "test-password-42");
     let (_, jwt) = api.authenticate(&credentials, true).await.unwrap();
     (wing, api, credentials, jwt)

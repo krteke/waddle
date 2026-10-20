@@ -267,13 +267,13 @@ impl Workspace {
 
                 let button = gtk::Button::builder()
                     .child(&content)
-                    .sensitive(record.ip.is_ok())
+                    .sensitive(record.url.is_ok())
                     .build();
 
                 button.add_css_class("flat");
 
-                if record.ip.is_err() {
-                    button.set_tooltip_text(Some(t!("server.invalid_ip").as_ref()));
+                if record.url.is_err() {
+                    button.set_tooltip_text(Some(t!("server.invalid_url").as_ref()));
                 }
 
                 button.connect_clicked(glib::clone!(

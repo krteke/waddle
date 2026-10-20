@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use adw::prelude::*;
 use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
@@ -83,7 +81,7 @@ impl Component for Connection {
                     #[watch]
                     set_label: match &model.phase {
                         Phase::Connected { .. } => t!("auth.connected"),
-                        Phase::InvalidAddress => t!("server.invalid_ip"),
+                        Phase::InvalidAddress => t!("server.invalid_url"),
                         Phase::Checking => t!("auth.checking"),
                         Phase::SigningIn => t!("auth.signing_in"),
                         _ => t!("auth.disconnected"),
@@ -133,11 +131,7 @@ impl Component for Connection {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let api = server
-            .ip
-            .as_ref()
-            .ok()
-            .map(|ip| Api::new(SocketAddr::new(*ip, server.port)));
+        let api = server.url.as_ref().ok().cloned().map(Api::new);
 
         let phase = if api.is_some() {
             Phase::Checking

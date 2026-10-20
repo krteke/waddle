@@ -176,8 +176,11 @@ impl Component for App {
                 match self.settings.save_server(
                     self.dialog.editing,
                     &self.dialog.name.text(),
-                    &self.dialog.ip.text(),
-                    &self.dialog.port.text(),
+                    &format!(
+                        "http://{}:{}",
+                        self.dialog.host.text().trim(),
+                        self.dialog.port.text().trim()
+                    ),
                     self.dialog.make_default.is_active(),
                 ) {
                     Ok(()) => {

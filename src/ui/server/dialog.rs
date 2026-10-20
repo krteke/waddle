@@ -13,8 +13,8 @@ pub struct ServerDialog {
     pub editing: Option<usize>,
     pub dialog: adw::Dialog,
     pub name: adw::EntryRow,
-    pub ip: adw::EntryRow,
-    pub port: adw::EntryRow,
+    pub host: gtk::Entry,
+    pub port: gtk::Entry,
     pub make_default: gtk::CheckButton,
     error: gtk::Label,
     pub validation_error: Option<ServerSettingsError>,
@@ -26,7 +26,7 @@ impl ServerDialog {
     pub fn new(sender: &ComponentSender<App>) -> Self {
         let dialog = adw::Dialog::builder()
             .content_width(440)
-            .content_height(336)
+            .content_height(306)
             .build();
 
         let cancel = gtk::Button::new();
@@ -51,15 +51,39 @@ impl ServerDialog {
         header.pack_end(&save);
 
         let name = adw::EntryRow::builder().activates_default(true).build();
-        let ip = adw::EntryRow::builder().activates_default(true).build();
-        let port = adw::EntryRow::builder()
+        let host = gtk::Entry::builder()
+            .activates_default(true)
+            .hexpand(true)
+            .width_chars(8)
+            .placeholder_text("localhost")
+            .input_purpose(gtk::InputPurpose::Url)
+            .build();
+
+        let port = gtk::Entry::builder()
             .activates_default(true)
             .input_purpose(gtk::InputPurpose::Digits)
+            .width_chars(5)
+            .max_width_chars(5)
             .build();
+
+        let address = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        address.set_margin_all(12);
+
+        let scheme = gtk::Label::new(Some("http://"));
+        scheme.add_css_class("dim-label");
+
+        let separator = gtk::Label::new(Some(":"));
+        separator.add_css_class("dim-label");
+
+        address.append(&scheme);
+        address.append(&host);
+        address.append(&separator);
+        address.append(&port);
+
+        let address_frame = gtk::Frame::builder().child(&address).build();
         let group = adw::PreferencesGroup::new();
         group.add(&name);
-        group.add(&ip);
-        group.add(&port);
+
         let make_default = gtk::CheckButton::new();
         let error = gtk::Label::builder()
             .wrap(true)
@@ -71,6 +95,7 @@ impl ServerDialog {
         let body = gtk::Box::new(gtk::Orientation::Vertical, 16);
         body.set_margin_all(24);
         body.append(&group);
+        body.append(&address_frame);
         body.append(&make_default);
         body.append(&error);
         let toolbar = adw::ToolbarView::new();
@@ -89,7 +114,7 @@ impl ServerDialog {
             editing: None,
             dialog,
             name,
-            ip,
+            host,
             port,
             make_default,
             error,
@@ -120,8 +145,12 @@ impl ServerDialog {
             .as_ref(),
         );
         self.name.set_title(t!("dialog.server_name").as_ref());
-        self.ip.set_title(t!("dialog.ip").as_ref());
-        self.port.set_title(t!("dialog.port").as_ref());
+        self.host.set_tooltip_text(Some(t!("dialog.host").as_ref()));
+        self.host
+            .update_property(&[gtk::accessible::Property::Label(t!("dialog.host").as_ref())]);
+        self.port.set_tooltip_text(Some(t!("dialog.port").as_ref()));
+        self.port
+            .update_property(&[gtk::accessible::Property::Label(t!("dialog.port").as_ref())]);
         self.make_default
             .set_label(Some(t!("dialog.make_default").as_ref()));
         self.error.set_label(
@@ -145,17 +174,26 @@ impl ServerDialog {
             Some(index) => {
                 let server = &settings.servers()[index];
                 self.name.set_text(&server.name);
-                self.ip.set_text(&match &server.ip {
-                    Ok(ip) => ip.to_string(),
-                    Err(error) => error.value.clone(),
-                });
-                self.port.set_text(&server.port.to_string());
+                match &server.url {
+                    Ok(url) => {
+                        self.host.set_text(url.host_str().unwrap_or_default());
+                        self.port.set_text(
+                            &url.port_or_known_default()
+                                .map(|port| port.to_string())
+                                .unwrap_or_default(),
+                        );
+                    }
+                    Err(error) => {
+                        self.host.set_text(&error.value);
+                        self.port.set_text("2023");
+                    }
+                }
                 self.make_default.set_active(server.is_default);
                 self.make_default.set_sensitive(!server.is_default);
             }
             None => {
                 self.name.set_text("");
-                self.ip.set_text("");
+                self.host.set_text("");
                 self.port.set_text("2023");
                 self.make_default.set_active(settings.servers().is_empty());
                 self.make_default

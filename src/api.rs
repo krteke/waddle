@@ -1,7 +1,8 @@
-use std::{net::SocketAddr, time::Duration};
+use std::time::Duration;
 
 use graphql_client::{GraphQLQuery, Response};
 use reqwest::{Client, header::HeaderValue};
+use url::Url;
 
 use crate::{credentials::Credentials, error::ApiError};
 
@@ -43,25 +44,26 @@ struct CurrentUser;
 #[derive(Clone, Debug)]
 pub struct Api {
     client: Client,
-    endpoint: String,
+    endpoint: Url,
     auth: Option<HeaderValue>,
 }
 
 impl Api {
-    pub fn new(address: SocketAddr) -> Self {
+    pub fn new(mut address: Url) -> Self {
+        address.set_path("/graphql");
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(15))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("HTTP client initialization failed"),
-            endpoint: format!("http://{address}/graphql"),
+            endpoint: address,
             auth: None,
         }
     }
 
     pub fn endpoint(&self) -> &str {
-        &self.endpoint
+        self.endpoint.as_str()
     }
 
     async fn execute<Q: GraphQLQuery>(
@@ -70,7 +72,7 @@ impl Api {
     ) -> Result<Q::ResponseData, ApiError> {
         let mut request = self
             .client
-            .post(&self.endpoint)
+            .post(self.endpoint.clone())
             .json(&Q::build_query(variables));
 
         if let Some(auth) = &self.auth {
@@ -176,7 +178,7 @@ mod tests {
         tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(async move {
-                let api = Api::new(wing.address);
+                let api = Api::new(format!("http://{}", wing.address).parse().unwrap());
                 api.health_check().await.unwrap();
                 assert!(!api.has_admin().await.unwrap());
                 let credentials = crate::credentials::Credentials::new("admin", "test-password-42");
