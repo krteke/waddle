@@ -5,6 +5,8 @@ use rust_i18n::t;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    #[error("Server rejected authentication")]
+    Unauthorized,
     #[error("Health check returned status {status}; expected 1")]
     Unhealthy { status: i64 },
     #[error("HTTP request failed: {0}")]
@@ -19,6 +21,10 @@ pub enum ApiError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectionError {
+    #[error("Could not restore the saved session: {0}")]
+    Session(#[source] ApiError),
+    #[error("Could not clear the saved session: {0}")]
+    SignOut(#[source] CredentialError),
     #[error("Server health check failed: {0}")]
     HealthCheck(#[source] ApiError),
     #[error("Could not check administrator status: {0}")]
@@ -36,6 +42,8 @@ pub enum ConnectionError {
 impl ConnectionError {
     pub fn user_message(&self) -> String {
         match self {
+            Self::Session(_) => t!("auth.connection_error"),
+            Self::SignOut(_) => t!("auth.sign_out_error"),
             Self::HealthCheck(_) => t!("auth.health_error"),
             Self::Check(_) | Self::Login(ApiError::Http(_)) | Self::Create(ApiError::Http(_)) => {
                 t!("auth.connection_error")

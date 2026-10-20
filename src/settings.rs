@@ -13,6 +13,7 @@ pub struct Server {
     pub ip: Result<IpAddr, InvalidIpAddress>,
     pub port: u16,
     pub is_default: bool,
+    pub logged_out: bool,
 }
 
 pub struct ServerSettings {
@@ -22,11 +23,11 @@ pub struct ServerSettings {
 
 impl ServerSettings {
     pub fn load(settings: gio::Settings) -> Self {
-        let records = settings.get::<Vec<(String, String, u16, bool)>>("servers");
+        let records = settings.get::<Vec<(String, String, u16, bool, bool)>>("servers");
 
         let servers = records
             .into_iter()
-            .map(|(name, ip, port, is_default)| {
+            .map(|(name, ip, port, is_default, logged_out)| {
                 let ip = ip.parse().map_err(|source| {
                     let error = InvalidIpAddress { value: ip, source };
                     tracing::warn!(server = %name, error = %error, "Could not parse saved server address");
@@ -38,6 +39,7 @@ impl ServerSettings {
                     ip,
                     port,
                     is_default,
+                    logged_out,
                 }
             })
             .collect();
@@ -112,7 +114,9 @@ impl ServerSettings {
             ip: Ok(ip),
             port,
             is_default,
+            logged_out: index.is_some_and(|index| self.servers[index].logged_out),
         };
+
         match index {
             Some(index) => servers[index] = server,
             None => servers.push(server),
@@ -128,6 +132,24 @@ impl ServerSettings {
         self.save(servers)
     }
 
+    pub fn login(&mut self, index: usize) -> Result<(), ServerSettingsError> {
+        self.set_logged_out(index, false)
+    }
+
+    pub fn logout(&mut self, index: usize) -> Result<(), ServerSettingsError> {
+        self.set_logged_out(index, true)
+    }
+
+    fn set_logged_out(
+        &mut self,
+        index: usize,
+        logged_out: bool,
+    ) -> Result<(), ServerSettingsError> {
+        let mut servers = self.servers.clone();
+        servers[index].logged_out = logged_out;
+        self.save(servers)
+    }
+
     fn save(&mut self, servers: Vec<Server>) -> Result<(), ServerSettingsError> {
         let records: Vec<_> = servers
             .iter()
@@ -140,6 +162,7 @@ impl ServerSettings {
                     },
                     server.port,
                     server.is_default,
+                    server.logged_out,
                 )
             })
             .collect();
@@ -172,6 +195,42 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn renaming_server_preserves_manual_sign_out() {
+        let backend = settings();
+        let mut config = ServerSettings::load(backend.clone());
+        config
+            .save_server(None, "Home", "127.0.0.1", "2023", false)
+            .unwrap();
+        config.set_logged_out(0, true).unwrap();
+        config
+            .save_server(Some(0), "Renamed", "::1", "8080", false)
+            .unwrap();
+        assert!(ServerSettings::load(backend).servers()[0].logged_out);
+    }
+
+    #[test]
+    fn manual_sign_out_is_persistent_and_specific_to_a_server() {
+        let backend = settings();
+        let mut config = ServerSettings::load(backend.clone());
+        config
+            .save_server(None, "Home", "127.0.0.1", "2023", false)
+            .unwrap();
+        config
+            .save_server(None, "Office", "::1", "8080", false)
+            .unwrap();
+        assert!(!config.servers()[0].logged_out);
+        config.set_logged_out(0, true).unwrap();
+        let mut reopened = ServerSettings::load(backend.clone());
+        assert!(reopened.servers()[0].logged_out);
+        assert!(!reopened.servers()[1].logged_out);
+        reopened.set_logged_out(1, true).unwrap();
+        reopened.set_logged_out(0, false).unwrap();
+        let reopened = ServerSettings::load(backend);
+        assert!(!reopened.servers()[0].logged_out);
+        assert!(reopened.servers()[1].logged_out);
+    }
+
+    #[test]
     fn language_selection_survives_reopening_settings() {
         let settings = settings();
         let config = ServerSettings::load(settings.clone());
@@ -195,8 +254,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Broken", "bad-ip", 2023u16, true),
-                    ("Office", "::1", 8080u16, false),
+                    ("Broken", "bad-ip", 2023u16, true, false),
+                    ("Office", "::1", 8080u16, false, false),
                 ],
             )
             .unwrap();
@@ -213,13 +272,15 @@ pub(crate) mod tests {
                     name: "Repaired".into(),
                     ip: Ok("127.0.0.1".parse().unwrap()),
                     port: 9090,
-                    is_default: true
+                    is_default: true,
+                    logged_out: false,
                 },
                 Server {
                     name: "Office".into(),
                     ip: Ok("::1".parse().unwrap()),
                     port: 8080,
-                    is_default: false
+                    is_default: false,
+                    logged_out: false,
                 },
             ]
         );
@@ -232,8 +293,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Home", "127.0.0.1", 2023u16, true),
-                    ("Office", "::1", 8080u16, false),
+                    ("Home", "127.0.0.1", 2023u16, true, false),
+                    ("Office", "::1", 8080u16, false, false),
                 ],
             )
             .unwrap();
@@ -244,10 +305,10 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(
-            settings.get::<Vec<(String, String, u16, bool)>>("servers"),
+            settings.get::<Vec<(String, String, u16, bool, bool)>>("servers"),
             vec![
-                ("Home".into(), "127.0.0.1".into(), 2023, false),
-                ("Office".into(), "::1".into(), 9090, true),
+                ("Home".into(), "127.0.0.1".into(), 2023, false, false),
+                ("Office".into(), "::1".into(), 9090, true, false),
             ]
         );
     }
@@ -259,8 +320,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Home", "127.0.0.1", 2023u16, true),
-                    ("Office", "::1", 8080u16, false),
+                    ("Home", "127.0.0.1", 2023u16, true, false),
+                    ("Office", "::1", 8080u16, false, false),
                 ],
             )
             .unwrap();
@@ -280,7 +341,7 @@ pub(crate) mod tests {
     fn editing_rejects_invalid_addresses_without_changing_settings() {
         let settings = settings();
         settings
-            .set("servers", vec![("Home", "127.0.0.1", 2023u16, true)])
+            .set("servers", vec![("Home", "127.0.0.1", 2023u16, true, false)])
             .unwrap();
         let mut config = ServerSettings::load(settings.clone());
         let before = config.servers().to_vec();
@@ -310,6 +371,7 @@ pub(crate) mod tests {
                 ip: Ok("192.168.1.2".parse().unwrap()),
                 port: 2023,
                 is_default: true,
+                logged_out: false,
             }]
         );
     }
@@ -352,11 +414,13 @@ pub(crate) mod tests {
         config
             .save_server(None, "Office", "10.0.0.2", "8080", false)
             .unwrap();
+        config.set_logged_out(0, true).unwrap();
         config.set_default(1).unwrap();
 
         let reopened = ServerSettings::load(settings);
         assert_eq!(reopened.default_server_index(), Some(1));
         assert!(!reopened.servers()[0].is_default);
+        assert!(reopened.servers()[0].logged_out);
     }
 
     #[test]
@@ -428,8 +492,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Broken", "not-an-ip", 2023u16, true),
-                    ("Home", "127.0.0.1", 8080u16, false),
+                    ("Broken", "not-an-ip", 2023u16, true, false),
+                    ("Home", "127.0.0.1", 8080u16, false, false),
                 ],
             )
             .unwrap();
@@ -449,7 +513,10 @@ pub(crate) mod tests {
     fn adding_a_server_preserves_unparseable_saved_addresses() {
         let settings = settings();
         settings
-            .set("servers", vec![("Broken", "not-an-ip", 2023u16, true)])
+            .set(
+                "servers",
+                vec![("Broken", "not-an-ip", 2023u16, true, false)],
+            )
             .unwrap();
         let mut config = ServerSettings::load(settings.clone());
         config
@@ -457,10 +524,10 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(
-            settings.get::<Vec<(String, String, u16, bool)>>("servers"),
+            settings.get::<Vec<(String, String, u16, bool, bool)>>("servers"),
             vec![
-                ("Broken".into(), "not-an-ip".into(), 2023, true),
-                ("Home".into(), "127.0.0.1".into(), 8080, false),
+                ("Broken".into(), "not-an-ip".into(), 2023, true, false),
+                ("Home".into(), "127.0.0.1".into(), 8080, false, false),
             ]
         );
     }
@@ -472,8 +539,8 @@ pub(crate) mod tests {
             .set(
                 "servers",
                 vec![
-                    ("Broken", "not-an-ip", 2023u16, true),
-                    ("Home", "127.0.0.1", 8080u16, false),
+                    ("Broken", "not-an-ip", 2023u16, true, false),
+                    ("Home", "127.0.0.1", 8080u16, false, false),
                 ],
             )
             .unwrap();
@@ -481,10 +548,10 @@ pub(crate) mod tests {
         config.set_default(1).unwrap();
 
         assert_eq!(
-            settings.get::<Vec<(String, String, u16, bool)>>("servers"),
+            settings.get::<Vec<(String, String, u16, bool, bool)>>("servers"),
             vec![
-                ("Broken".into(), "not-an-ip".into(), 2023, false),
-                ("Home".into(), "127.0.0.1".into(), 8080, true),
+                ("Broken".into(), "not-an-ip".into(), 2023, false, false),
+                ("Home".into(), "127.0.0.1".into(), 8080, true, false),
             ]
         );
     }
@@ -520,6 +587,7 @@ pub(crate) mod tests {
         config
             .save_server(None, "Office", "::1", "8080", true)
             .unwrap();
+        config.set_logged_out(0, true).unwrap();
         gio::Settings::sync();
         drop(config);
         drop(backend);
@@ -527,6 +595,7 @@ pub(crate) mod tests {
         let backend = gio::keyfile_settings_backend_new(path.to_str().unwrap(), "/", None);
         let reopened = ServerSettings::load(gio::Settings::new_full(&schema, Some(&backend), None));
         assert_eq!(reopened.servers().len(), 2);
+        assert!(reopened.servers()[0].logged_out);
         assert_eq!(
             &reopened.servers()[reopened.default_server_index().unwrap()],
             &Server {
@@ -534,6 +603,7 @@ pub(crate) mod tests {
                 ip: Ok("::1".parse().unwrap()),
                 port: 8080,
                 is_default: true,
+                logged_out: false,
             }
         );
         std::fs::remove_file(path).unwrap();

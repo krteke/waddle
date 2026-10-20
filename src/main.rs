@@ -2,6 +2,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 mod api;
 mod app;
+mod auth;
 mod credentials;
 mod error;
 mod i18n;

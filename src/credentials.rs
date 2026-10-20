@@ -2,10 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{error::CredentialError, settings::APPLICATION_ID};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Credentials {
-    username: String,
-    password: String,
+    pub username: String,
+    pub password: Option<String>,
+    pub jwt: Option<String>,
 }
 
 impl std::fmt::Debug for Credentials {
@@ -21,16 +22,9 @@ impl Credentials {
     pub fn new(username: impl Into<String>, password: impl Into<String>) -> Self {
         Self {
             username: username.into(),
-            password: password.into(),
+            password: Some(password.into()),
+            jwt: None,
         }
-    }
-
-    pub fn username(&self) -> &str {
-        &self.username
-    }
-
-    pub fn password(&self) -> &str {
-        &self.password
     }
 
     pub async fn save(&self, server: &str) -> Result<(), CredentialError> {
@@ -81,19 +75,35 @@ mod tests {
             assert!(load(&first).await.unwrap().is_none());
             let alice = Credentials {
                 username: "alice".into(),
-                password: "first-secret".into(),
+                password: Some("first-secret".into()),
+                jwt: Some("first-token".into()),
             };
             alice.save(&first).await.unwrap();
             assert!(load(&second).await.unwrap().is_none());
             let bob = Credentials {
                 username: "bob".into(),
-                password: "replacement-secret".into(),
+                password: None,
+                jwt: Some("replacement-token".into()),
             };
             bob.save(&first).await.unwrap();
             let credentials = load(&first).await.unwrap().unwrap();
             assert_eq!(credentials.username, "bob");
-            assert_eq!(credentials.password, "replacement-secret");
+            assert!(credentials.password.is_none());
+            assert_eq!(credentials.jwt.as_deref(), Some("replacement-token"));
             assert!(!format!("{credentials:?}").contains("replacement-secret"));
+            assert!(!format!("{credentials:?}").contains("replacement-token"));
+            let mut credentials = credentials;
+            credentials.jwt = None;
+            credentials.save(&first).await.unwrap();
+            assert!(
+                load(&first)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .jwt
+                    .as_deref()
+                    .is_none()
+            );
             let keyring = oo7::Keyring::new().await.unwrap();
             let attributes = [
                 ("application", crate::settings::APPLICATION_ID),

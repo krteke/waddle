@@ -11,6 +11,7 @@ pub struct LoginDialog {
     pub dialog: adw::Dialog,
     username: adw::EntryRow,
     password: adw::PasswordEntryRow,
+    remember_password: adw::SwitchRow,
     hint: gtk::Label,
     error: gtk::Label,
     cancel: gtk::Button,
@@ -20,12 +21,16 @@ pub struct LoginDialog {
 
 impl LoginDialog {
     pub fn new(sender: &ComponentSender<Connection>, server_name: &str) -> Self {
-        let dialog = adw::Dialog::builder().content_width(440).build();
+        let dialog = adw::Dialog::builder()
+            .content_width(440)
+            .content_height(326)
+            .build();
 
         let username = adw::EntryRow::builder().activates_default(true).build();
         let password = adw::PasswordEntryRow::builder()
             .activates_default(true)
             .build();
+        let remember_password = adw::SwitchRow::new();
 
         let hint = gtk::Label::builder().wrap(true).xalign(0.0).build();
         hint.add_css_class("dim-label");
@@ -83,6 +88,7 @@ impl LoginDialog {
         let group = adw::PreferencesGroup::new();
         group.add(&username);
         group.add(&password);
+        group.add(&remember_password);
 
         let body = gtk::Box::new(gtk::Orientation::Vertical, 16);
         body.set_margin_top(24);
@@ -111,6 +117,7 @@ impl LoginDialog {
             dialog,
             username,
             password,
+            remember_password,
             hint,
             error,
             cancel,
@@ -119,10 +126,18 @@ impl LoginDialog {
         }
     }
 
-    pub fn present(&mut self, parent: &adw::ApplicationWindow, create_admin: bool, username: &str) {
+    pub fn present(
+        &mut self,
+        parent: &adw::ApplicationWindow,
+        create_admin: bool,
+        credentials: &Credentials,
+        save_password: bool,
+    ) {
         self.create_admin = create_admin;
-        self.username.set_text(username);
-        self.password.set_text("");
+        self.username.set_text(&credentials.username);
+        self.password
+            .set_text(credentials.password.as_deref().unwrap_or_default());
+        self.remember_password.set_active(save_password);
         self.dialog.set_focus(Some(&self.username));
         self.dialog.present(Some(parent));
     }
@@ -142,6 +157,10 @@ impl LoginDialog {
         Credentials::new(self.username.text().trim(), self.password.text())
     }
 
+    pub fn save_password(&self) -> bool {
+        self.remember_password.is_active()
+    }
+
     pub fn refresh(&self, busy: bool, error: Option<&str>) {
         self.dialog.set_title(
             if self.create_admin {
@@ -154,6 +173,8 @@ impl LoginDialog {
 
         self.username.set_title(t!("auth.username").as_ref());
         self.password.set_title(t!("auth.password").as_ref());
+        self.remember_password
+            .set_title(t!("auth.save_password").as_ref());
 
         self.hint.set_label(
             if self.create_admin {
@@ -176,6 +197,7 @@ impl LoginDialog {
 
         self.username.set_sensitive(!busy);
         self.password.set_sensitive(!busy);
+        self.remember_password.set_sensitive(!busy);
 
         self.submit.set_sensitive(
             !busy && !self.username.text().trim().is_empty() && !self.password.text().is_empty(),

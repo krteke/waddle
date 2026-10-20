@@ -7,28 +7,10 @@ use rust_i18n::t;
 use super::login_dialog::LoginDialog;
 use crate::{
     api::Api,
-    credentials::{self, Credentials},
-    error::{ApiError, ConnectionError},
+    auth::{self, AuthResult},
+    error::ConnectionError,
     settings::Server,
 };
-
-#[cfg(test)]
-mod tests;
-
-#[derive(Debug)]
-pub enum AuthResult {
-    Prompt {
-        create_admin: bool,
-        username: String,
-        error: Option<ConnectionError>,
-    },
-    Connected {
-        api: Api,
-        username: String,
-        warning: Option<ConnectionError>,
-    },
-    Failed(ConnectionError),
-}
 
 #[derive(Debug)]
 enum Phase {
@@ -41,7 +23,7 @@ enum Phase {
 }
 
 pub struct Connection {
-    server: Server,
+    server_name: String,
     parent: adw::ApplicationWindow,
     api: Option<Api>,
     phase: Phase,
@@ -51,16 +33,24 @@ pub struct Connection {
 
 #[derive(Debug)]
 pub enum ConnectionMsg {
-    Retry,
+    Retry(bool),
     Submit,
+    SignOut,
     Retranslate,
+}
+
+#[derive(Debug)]
+pub enum ConnectionOutput {
+    Retry,
+    SignOut,
+    SignedIn,
 }
 
 #[relm4::component(pub)]
 impl Component for Connection {
     type Init = (adw::ApplicationWindow, Server);
     type Input = ConnectionMsg;
-    type Output = ();
+    type Output = ConnectionOutput;
     type CommandOutput = AuthResult;
 
     view! {
@@ -77,9 +67,9 @@ impl Component for Connection {
                 set_icon_name: Some("network-server-symbolic"),
                 #[watch]
                 set_title: &match &model.phase {
-                    Phase::Connected { .. } => t!("server.connected", name = &model.server.name).to_string(),
-                    Phase::InvalidAddress => t!("server.invalid_address_title", name = &model.server.name).to_string(),
-                    _ => model.server.name.clone(),
+                    Phase::Connected { .. } => t!("server.connected", name = &model.server_name).to_string(),
+                    Phase::InvalidAddress => t!("server.invalid_address_title", name = &model.server_name).to_string(),
+                    _ => model.server_name.clone(),
                 },
                 #[watch]
                 set_description: Some(&match &model.phase {
@@ -107,7 +97,14 @@ impl Component for Connection {
                         set_label: if matches!(model.phase, Phase::AwaitingCredentials) { t!("auth.login") } else { t!("auth.retry") }.as_ref(),
                         #[watch]
                         set_visible: matches!(model.phase, Phase::AwaitingCredentials | Phase::Failed),
-                        connect_clicked => ConnectionMsg::Retry,
+                        connect_clicked[sender] => move |_| { sender.output(ConnectionOutput::Retry).unwrap(); },
+                    },
+                    gtk::Button {
+                        #[watch]
+                        set_label: t!("auth.sign_out").as_ref(),
+                        #[watch]
+                        set_visible: matches!(model.phase, Phase::Connected { .. }),
+                        connect_clicked[sender] => move |_| { sender.output(ConnectionOutput::SignOut).unwrap(); },
                     },
                 },
             },
@@ -133,7 +130,7 @@ impl Component for Connection {
 
         let login = LoginDialog::new(&sender, &server.name);
         let model = Self {
-            server,
+            server_name: server.name,
             parent,
             api,
             phase,
@@ -143,7 +140,7 @@ impl Component for Connection {
 
         let widgets = view_output!();
         if model.api.is_some() {
-            sender.input(ConnectionMsg::Retry);
+            sender.input(ConnectionMsg::Retry(server.logged_out));
         }
 
         ComponentParts { model, widgets }
@@ -151,23 +148,33 @@ impl Component for Connection {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            ConnectionMsg::Retry => {
+            ConnectionMsg::Retry(logged_out) => {
                 self.phase = Phase::Checking;
                 self.error = None;
                 let api = self.api.as_ref().unwrap().clone();
-                let server_name = self.server.name.clone();
-                sender.oneshot_command(async move { prepare(api, &server_name).await });
+                let server_name = self.server_name.clone();
+                sender.oneshot_command(async move {
+                    auth::prepare(api, &server_name, logged_out).await
+                });
             }
             ConnectionMsg::Submit => {
                 let credentials = self.login.credentials();
                 let create_admin = self.login.create_admin;
+                let save_password = self.login.save_password();
                 self.phase = Phase::SigningIn;
                 self.error = None;
                 let api = self.api.as_ref().unwrap().clone();
-                let server_name = self.server.name.clone();
+                let server_name = self.server_name.clone();
                 sender.oneshot_command(async move {
-                    authenticate(api, &server_name, credentials, create_admin).await
+                    auth::authenticate(api, &server_name, credentials, create_admin, save_password)
+                        .await
                 });
+            }
+            ConnectionMsg::SignOut => {
+                self.phase = Phase::Checking;
+                self.error = None;
+                let server_name = self.server_name.clone();
+                sender.oneshot_command(async move { auth::sign_out(&server_name).await });
             }
             ConnectionMsg::Retranslate => {}
         }
@@ -184,19 +191,21 @@ impl Component for Connection {
     fn update_cmd(
         &mut self,
         result: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
         match result {
             AuthResult::Prompt {
                 create_admin,
-                username,
+                credentials,
+                save_password,
                 error,
             } => {
                 if matches!(self.phase, Phase::SigningIn) {
                     self.login.clear_password();
                 } else {
-                    self.login.present(&self.parent, create_admin, &username);
+                    self.login
+                        .present(&self.parent, create_admin, &credentials, save_password);
                 }
                 self.phase = Phase::AwaitingCredentials;
                 self.error = error;
@@ -208,6 +217,9 @@ impl Component for Connection {
             } => {
                 self.phase = Phase::Connected { api, username };
                 self.error = warning;
+                if self.error.is_none() {
+                    sender.output(ConnectionOutput::SignedIn).unwrap();
+                }
                 self.login.close();
             }
             AuthResult::Failed(error) => {
@@ -217,7 +229,7 @@ impl Component for Connection {
         }
 
         if let Some(error) = &self.error {
-            tracing::warn!(server = %self.server.name, error = %error, "Server connection");
+            tracing::warn!(server = %self.server_name, error = %error, "Server connection");
         }
 
         self.login.refresh(
@@ -231,71 +243,5 @@ impl Component for Connection {
 
     fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
         self.login.close();
-    }
-}
-
-async fn prepare(api: Api, server_name: &str) -> AuthResult {
-    if let Err(error) = api.health_check().await {
-        return AuthResult::Failed(ConnectionError::HealthCheck(error));
-    }
-
-    match api.has_admin().await {
-        Ok(false) => AuthResult::Prompt {
-            create_admin: true,
-            username: String::new(),
-            error: None,
-        },
-        Ok(true) => match credentials::load(server_name).await {
-            Ok(Some(credentials)) => authenticate(api, server_name, credentials, false).await,
-            Ok(None) => AuthResult::Prompt {
-                create_admin: false,
-                username: String::new(),
-                error: None,
-            },
-            Err(error) => AuthResult::Prompt {
-                create_admin: false,
-                username: String::new(),
-                error: Some(ConnectionError::ReadCredentials(error)),
-            },
-        },
-        Err(error) => AuthResult::Failed(ConnectionError::Check(error)),
-    }
-}
-
-async fn authenticate(
-    api: Api,
-    server_name: &str,
-    credentials: Credentials,
-    create_admin: bool,
-) -> AuthResult {
-    let result = async {
-        let api = api.authenticate(&credentials, create_admin).await?;
-        let username = api.current_user().await?;
-        Ok::<_, ApiError>((api, username))
-    }
-    .await;
-
-    match result {
-        Ok((api, username)) => {
-            let warning = credentials
-                .save(server_name)
-                .await
-                .err()
-                .map(ConnectionError::SaveCredentials);
-            AuthResult::Connected {
-                api,
-                username,
-                warning,
-            }
-        }
-        Err(error) => AuthResult::Prompt {
-            create_admin,
-            username: credentials.username().to_owned(),
-            error: Some(if create_admin {
-                ConnectionError::Create(error)
-            } else {
-                ConnectionError::Login(error)
-            }),
-        },
     }
 }

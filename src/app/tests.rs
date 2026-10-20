@@ -144,6 +144,10 @@ fn server_management_and_authentication_lifecycle() {
     });
     assert!(!connected(window, "Connected to Home"));
     let login = window.visible_dialog().unwrap();
+    let remember = find_widget::<adw::SwitchRow>(&login, &|row| row.title() == "Save Password")
+        .expect("login must offer an optional Save Password switch");
+    assert!(!remember.is_active());
+    remember.set_active(true);
     fill(&login, "Username", "home-admin<&>");
     password(&login, "weak");
     click(&login, "Create Account");
@@ -184,8 +188,9 @@ fn server_management_and_authentication_lifecycle() {
     );
     runtime.block_on(async {
         let saved = credentials::load("Home").await.unwrap().unwrap();
-        assert_eq!(saved.username(), "home-admin<&>");
-        assert_eq!(saved.password(), "home-password-42");
+        assert_eq!(saved.username, "home-admin<&>");
+        assert_eq!(saved.password.as_deref(), Some("home-password-42"));
+        assert!(saved.jwt.as_deref().is_some());
     });
     let menu = find_widget::<gtk::MenuButton>(window, &|button| {
         button.icon_name().as_deref() == Some("preferences-desktop-locale-symbolic")
@@ -265,6 +270,9 @@ fn server_management_and_authentication_lifecycle() {
             .is_none()
     );
     password(&login, "office-password-42");
+    find_widget::<adw::SwitchRow>(&login, &|row| row.title() == "Save Password")
+        .unwrap()
+        .set_active(true);
     click(&login, "Sign In");
     wait_for(|| connected(window, "Connected to Office"));
     click_icon(window, "network-server-symbolic");
@@ -291,12 +299,97 @@ fn server_management_and_authentication_lifecycle() {
     assert!(window.visible_dialog().is_none());
     language(window, "en");
     wait_for(|| connected(window, "Connected to Office"));
+    click(window, "Sign Out");
+    wait_for(|| window.visible_dialog().is_some());
+    assert!(!connected(window, "Connected to Office"));
+    let login = window.visible_dialog().unwrap();
+    assert_eq!(login.title(), "Sign In");
+    assert!(
+        runtime
+            .block_on(credentials::load("Office"))
+            .unwrap()
+            .unwrap()
+            .jwt
+            .as_deref()
+            .is_none()
+    );
+    assert!(ServerSettings::load(settings.clone()).servers()[1].logged_out);
+    assert_eq!(
+        find_widget::<adw::PasswordEntryRow>(&login, &|_| true)
+            .unwrap()
+            .text(),
+        "office-password-42"
+    );
+    click(&login, "Cancel");
+    window.close();
+    drop(controller);
+
+    let controller = App::builder()
+        .launch(ServerSettings::load(settings.clone()))
+        .detach();
+    let window = controller.widget();
+    window.present();
+    wait_for(|| window.visible_dialog().is_some());
+    assert!(!connected(window, "Connected to Office"));
+    let login = window.visible_dialog().unwrap();
+    assert_eq!(login.title(), "Sign In");
+    assert_eq!(
+        find_widget::<adw::PasswordEntryRow>(&login, &|_| true)
+            .unwrap()
+            .text(),
+        "office-password-42"
+    );
+    let remember =
+        find_widget::<adw::SwitchRow>(&login, &|row| row.title() == "Save Password").unwrap();
+    assert!(remember.is_active());
+    remember.set_active(false);
+    click(&login, "Sign In");
+    wait_for(|| connected(window, "Connected to Office"));
+    assert!(!ServerSettings::load(settings.clone()).servers()[1].logged_out);
+    let saved = runtime
+        .block_on(credentials::load("Office"))
+        .unwrap()
+        .unwrap();
+    assert!(saved.password.as_deref().is_none());
+    assert!(saved.jwt.as_deref().is_some());
+    window.close();
+    drop(controller);
+
+    // The saved JWT restores a session after opting out of password storage.
+    let controller = App::builder()
+        .launch(ServerSettings::load(settings.clone()))
+        .detach();
+    let window = controller.widget();
+    window.present();
+    wait_for(|| connected(window, "Connected to Office"));
+    assert!(window.visible_dialog().is_none());
+    click(window, "Sign Out");
+    wait_for(|| window.visible_dialog().is_some());
+    let login = window.visible_dialog().unwrap();
+    assert_eq!(
+        find_widget::<adw::PasswordEntryRow>(&login, &|_| true)
+            .unwrap()
+            .text(),
+        ""
+    );
+    password(&login, "office-password-42");
+    click(&login, "Sign In");
+    wait_for(|| connected(window, "Connected to Office"));
     window.close();
     drop(controller);
 
     let office_admin = Credentials::new("office-admin", "stale-password");
     // A stale saved password opens the login form and is replaced only after success.
-    runtime.block_on(office_admin.save("Office")).unwrap();
+    runtime
+        .block_on(
+            Credentials {
+                username: office_admin.username.clone(),
+                password: office_admin.password.clone(),
+                jwt: Some("rejected-token".into()),
+            }
+            .save("Office"),
+        )
+        .unwrap();
     let controller = App::builder()
         .launch(ServerSettings::load(settings.clone()))
         .detach();
@@ -328,8 +421,9 @@ fn server_management_and_authentication_lifecycle() {
             .block_on(credentials::load("Office"))
             .unwrap()
             .unwrap()
-            .password(),
-        "office-password-42"
+            .password
+            .as_deref(),
+        Some("office-password-42")
     );
     window.close();
     drop(controller);
@@ -338,8 +432,8 @@ fn server_management_and_authentication_lifecycle() {
         .set(
             "servers",
             vec![
-                ("Broken", "not-an-ip", home.address.port(), true),
-                ("Office", "127.0.0.1", office.address.port(), false),
+                ("Broken", "not-an-ip", home.address.port(), true, false),
+                ("Office", "127.0.0.1", office.address.port(), false, false),
             ],
         )
         .unwrap();
@@ -369,7 +463,7 @@ fn server_management_and_authentication_lifecycle() {
     click(&dialog, "Cancel");
     wait_for(|| window.visible_dialog().is_none());
     assert_eq!(
-        settings.get::<Vec<(String, String, u16, bool)>>("servers")[0].1,
+        settings.get::<Vec<(String, String, u16, bool, bool)>>("servers")[0].1,
         "not-an-ip"
     );
     let broken = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Broken").unwrap();

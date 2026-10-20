@@ -7,7 +7,7 @@ use crate::{
     error::ServerSettingsError,
     settings::ServerSettings,
     ui::{
-        connection::{Connection, ConnectionMsg},
+        connection::{Connection, ConnectionMsg, ConnectionOutput},
         server::dialog::ServerDialog,
         server::page::ServerPage,
     },
@@ -33,6 +33,7 @@ pub enum AppMsg {
     OpenServer(usize),
     SetDefault(usize),
     SetLanguage(String),
+    Connection(usize, ConnectionOutput),
 }
 
 #[relm4::component(pub)]
@@ -148,7 +149,7 @@ impl Component for App {
         let server_page = &model.server_page.page;
         let widgets = view_output!();
         if model.active.is_some() {
-            model.open_connection(&root, &widgets.connection_content);
+            model.open_connection(&root, &widgets.connection_content, &sender);
         }
         ComponentParts { model, widgets }
     }
@@ -185,7 +186,7 @@ impl Component for App {
                         self.dialog.dialog.close();
                         self.error = None;
                         if self.dialog.editing.is_none() || self.dialog.editing == self.active {
-                            self.open_connection(root, &widgets.connection_content);
+                            self.open_connection(root, &widgets.connection_content, &sender);
                         }
                     }
                     Err(error) => {
@@ -197,8 +198,34 @@ impl Component for App {
             }
             AppMsg::OpenServer(index) => {
                 self.active = Some(index);
-                self.open_connection(root, &widgets.connection_content);
+                self.open_connection(root, &widgets.connection_content, &sender);
                 widgets.navigation.pop_to_tag("home");
+            }
+            AppMsg::Connection(index, event) => {
+                if self.active != Some(index) {
+                    return;
+                }
+                match event {
+                    ConnectionOutput::Retry => {
+                        self.connection.as_ref().unwrap().emit(ConnectionMsg::Retry(
+                            self.settings.servers()[index].logged_out,
+                        ));
+                    }
+                    ConnectionOutput::SignOut => {
+                        self.error = self.settings.logout(index).err();
+                        if self.error.is_none() {
+                            self.connection
+                                .as_ref()
+                                .unwrap()
+                                .emit(ConnectionMsg::SignOut);
+                        }
+                    }
+                    ConnectionOutput::SignedIn => {
+                        if self.settings.servers()[index].logged_out {
+                            self.error = self.settings.login(index).err();
+                        }
+                    }
+                }
             }
             AppMsg::SetDefault(index) => {
                 self.error = self.settings.set_default(index).err();
@@ -226,14 +253,22 @@ impl Component for App {
 }
 
 impl App {
-    fn open_connection(&mut self, root: &adw::ApplicationWindow, content: &gtk::Box) {
+    fn open_connection(
+        &mut self,
+        root: &adw::ApplicationWindow,
+        content: &gtk::Box,
+        sender: &ComponentSender<Self>,
+    ) {
         if let Some(connection) = self.connection.take() {
             content.remove(connection.widget());
         }
-        let server = self.settings.servers()[self.active.unwrap()].clone();
+        let index = self.active.unwrap();
+        let server = self.settings.servers()[index].clone();
         let connection = Connection::builder()
             .launch((root.clone(), server))
-            .detach();
+            .forward(sender.input_sender(), move |event| {
+                AppMsg::Connection(index, event)
+            });
         content.append(connection.widget());
         self.connection = Some(connection);
     }

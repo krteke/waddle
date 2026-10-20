@@ -77,12 +77,18 @@ impl Api {
             request = request.header(reqwest::header::AUTHORIZATION, auth);
         }
 
-        let response: Response<Q::ResponseData> =
-            request.send().await?.error_for_status()?.json().await?;
+        let response = request.send().await?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(ApiError::Unauthorized);
+        }
+        let response: Response<Q::ResponseData> = response.error_for_status()?.json().await?;
 
         if let Some(errors) = response.errors
             && !errors.is_empty()
         {
+            if errors.iter().any(|error| error.message == "access denied") {
+                return Err(ApiError::Unauthorized);
+            }
             return Err(ApiError::Graphql(errors));
         }
 
@@ -114,23 +120,32 @@ impl Api {
         &self,
         credentials: &Credentials,
         create: bool,
-    ) -> Result<Self, ApiError> {
+    ) -> Result<(Self, String), ApiError> {
+        let password = credentials
+            .password
+            .as_deref()
+            .expect("Password authentication requires a password");
+
         let token = if create {
             self.execute::<CreateAdmin>(create_admin::Variables {
-                username: credentials.username().to_owned(),
-                password: credentials.password().to_owned(),
+                username: credentials.username.clone(),
+                password: password.to_owned(),
             })
             .await?
             .create_user
         } else {
             self.execute::<Login>(login::Variables {
-                username: credentials.username().to_owned(),
-                password: credentials.password().to_owned(),
+                username: credentials.username.clone(),
+                password: password.to_owned(),
             })
             .await?
             .token
         };
 
+        Ok((self.with_token(&token)?, token))
+    }
+
+    pub fn with_token(&self, token: &str) -> Result<Self, ApiError> {
         let mut auth = HeaderValue::from_str(&format!("Bearer {token}"))?;
         auth.set_sensitive(true);
 
@@ -165,7 +180,7 @@ mod tests {
                 api.health_check().await.unwrap();
                 assert!(!api.has_admin().await.unwrap());
                 let credentials = crate::credentials::Credentials::new("admin", "test-password-42");
-                let session = api.authenticate(&credentials, true).await.unwrap();
+                let (session, _) = api.authenticate(&credentials, true).await.unwrap();
                 assert_eq!(session.current_user().await.unwrap(), "admin");
                 assert!(api.has_admin().await.unwrap());
                 assert!(matches!(
@@ -176,7 +191,7 @@ mod tests {
                     .await,
                     Err(ApiError::Graphql(_))
                 ));
-                let session = api.authenticate(&credentials, false).await.unwrap();
+                let (session, _) = api.authenticate(&credentials, false).await.unwrap();
                 assert_eq!(session.current_user().await.unwrap(), "admin");
             });
     }

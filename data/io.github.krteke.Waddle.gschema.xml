@@ -11,10 +11,10 @@
       <summary>Interface language</summary>
       <description>An empty value follows the system language.</description>
     </key>
-    <key name="servers" type="a(ssqb)">
+    <key name="servers" type="a(ssqbb)">
       <default>[]</default>
       <summary>Saved servers</summary>
-      <description>Server name, IP address, port and default flag.</description>
+      <description>Server name, IP address, port, default flag and manual sign-out flag.</description>
     </key>
   </schema>
 </schemalist>
