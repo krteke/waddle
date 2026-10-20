@@ -1,0 +1,3 @@
+query Login($username: String!, $password: String!) {
+  token(username: $username, password: $password)
+}

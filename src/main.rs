@@ -1,9 +1,15 @@
 rust_i18n::i18n!("locales", fallback = "en");
 
+mod api;
 mod app;
+mod credentials;
 mod error;
 mod i18n;
 mod settings;
+mod ui;
+
+#[cfg(test)]
+mod test_support;
 
 use relm4::{RelmApp, gtk::gio};
 use settings::{APPLICATION_ID, ServerSettings};

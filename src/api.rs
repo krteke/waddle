@@ -1,0 +1,183 @@
+use std::{net::SocketAddr, time::Duration};
+
+use graphql_client::{GraphQLQuery, Response};
+use reqwest::{Client, header::HeaderValue};
+
+use crate::{credentials::Credentials, error::ApiError};
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/health_check.graphql"
+)]
+struct HealthCheck;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/has_admin.graphql"
+)]
+struct HasAdmin;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/login.graphql"
+)]
+struct Login;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/create_admin.graphql"
+)]
+struct CreateAdmin;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/current_user.graphql"
+)]
+struct CurrentUser;
+
+#[derive(Clone, Debug)]
+pub struct Api {
+    client: Client,
+    endpoint: String,
+    auth: Option<HeaderValue>,
+}
+
+impl Api {
+    pub fn new(address: SocketAddr) -> Self {
+        Self {
+            client: Client::builder()
+                .timeout(Duration::from_secs(15))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("HTTP client initialization failed"),
+            endpoint: format!("http://{address}/graphql"),
+            auth: None,
+        }
+    }
+
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    async fn execute<Q: GraphQLQuery>(
+        &self,
+        variables: Q::Variables,
+    ) -> Result<Q::ResponseData, ApiError> {
+        let mut request = self
+            .client
+            .post(&self.endpoint)
+            .json(&Q::build_query(variables));
+
+        if let Some(auth) = &self.auth {
+            request = request.header(reqwest::header::AUTHORIZATION, auth);
+        }
+
+        let response: Response<Q::ResponseData> =
+            request.send().await?.error_for_status()?.json().await?;
+
+        if let Some(errors) = response.errors
+            && !errors.is_empty()
+        {
+            return Err(ApiError::Graphql(errors));
+        }
+
+        response.data.ok_or(ApiError::MissingData)
+    }
+
+    pub async fn health_check(&self) -> Result<(), ApiError> {
+        let status = self
+            .execute::<HealthCheck>(health_check::Variables {})
+            .await?
+            .health_check;
+
+        if status != 1 {
+            return Err(ApiError::Unhealthy { status });
+        }
+
+        Ok(())
+    }
+
+    pub async fn has_admin(&self) -> Result<bool, ApiError> {
+        Ok(self
+            .execute::<HasAdmin>(has_admin::Variables {})
+            .await?
+            .number_users
+            > 0)
+    }
+
+    pub async fn authenticate(
+        &self,
+        credentials: &Credentials,
+        create: bool,
+    ) -> Result<Self, ApiError> {
+        let token = if create {
+            self.execute::<CreateAdmin>(create_admin::Variables {
+                username: credentials.username().to_owned(),
+                password: credentials.password().to_owned(),
+            })
+            .await?
+            .create_user
+        } else {
+            self.execute::<Login>(login::Variables {
+                username: credentials.username().to_owned(),
+                password: credentials.password().to_owned(),
+            })
+            .await?
+            .token
+        };
+
+        let mut auth = HeaderValue::from_str(&format!("Bearer {token}"))?;
+        auth.set_sensitive(true);
+
+        Ok(Self {
+            auth: Some(auth),
+            ..self.clone()
+        })
+    }
+
+    pub async fn current_user(&self) -> Result<String, ApiError> {
+        Ok(self
+            .execute::<CurrentUser>(current_user::Variables {})
+            .await?
+            .user
+            .username)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::Wing;
+
+    #[test]
+    #[ignore = "requires DAE_WING_BIN; run scripts/test-e2e.sh"]
+    fn administrator_creation_and_login_authorize_graphql_requests() {
+        let wing = Wing::start();
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async move {
+                let api = Api::new(wing.address);
+                api.health_check().await.unwrap();
+                assert!(!api.has_admin().await.unwrap());
+                let credentials = crate::credentials::Credentials::new("admin", "test-password-42");
+                let session = api.authenticate(&credentials, true).await.unwrap();
+                assert_eq!(session.current_user().await.unwrap(), "admin");
+                assert!(api.has_admin().await.unwrap());
+                assert!(matches!(
+                    api.authenticate(
+                        &crate::credentials::Credentials::new("admin", "wrong-password"),
+                        false
+                    )
+                    .await,
+                    Err(ApiError::Graphql(_))
+                ));
+                let session = api.authenticate(&credentials, false).await.unwrap();
+                assert_eq!(session.current_user().await.unwrap(), "admin");
+            });
+    }
+}
