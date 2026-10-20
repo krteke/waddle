@@ -18,6 +18,7 @@ pub struct App {
 pub enum AppMsg {
     Opened,
     ShowAdd,
+    EditServer(usize),
     SaveServer,
     OpenServer(usize),
     SetDefault(usize),
@@ -37,34 +38,38 @@ impl Component for App {
             set_default_size: (760, 600),
             connect_map => AppMsg::Opened,
 
-            adw::ToolbarView {
-                add_top_bar = &adw::HeaderBar {
-                    set_title_widget: Some(&adw::WindowTitle::new("Waddle", "")),
-                    pack_end = &gtk::Button {
-                        #[watch]
-                        set_label: t!("app.add_server").as_ref(),
-                        #[watch]
-                        set_tooltip_text: Some(t!("app.add_server_hint").as_ref()),
-                        connect_clicked => AppMsg::ShowAdd,
-                    },
-                    pack_end = &gtk::MenuButton {
-                        #[watch]
-                        set_label: t!("language.title").as_ref(),
-                        set_menu_model: Some(&model.language_menu),
-                    },
-                },
-
-                gtk::ScrolledWindow {
-                    set_hscrollbar_policy: gtk::PolicyType::Never,
-
-                    adw::Clamp {
-                        set_maximum_size: 640,
-                        set_margin_all: 24,
-
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Vertical,
-                            set_spacing: 24,
-
+                #[name = "navigation"]
+                adw::NavigationView {
+                    set_vexpand: true,
+                    add = &adw::NavigationPage {
+                        set_tag: Some("home"),
+                        set_title: "Waddle",
+                        adw::ToolbarView {
+                            add_top_bar = &adw::HeaderBar {
+                                pack_end = &gtk::MenuButton {
+                                    set_icon_name: "preferences-desktop-locale-symbolic",
+                                    #[watch]
+                                    set_tooltip_text: Some(t!("language.title").as_ref()),
+                                    #[watch]
+                                    update_property: &[gtk::accessible::Property::Label(t!("language.title").as_ref())],
+                                    set_menu_model: Some(&model.language_menu),
+                                },
+                                pack_end = &gtk::Button {
+                                    set_icon_name: "network-server-symbolic",
+                                    #[watch]
+                                    set_tooltip_text: Some(t!("app.servers").as_ref()),
+                                    #[watch]
+                                    update_property: &[gtk::accessible::Property::Label(t!("app.servers").as_ref())],
+                                    set_action_name: Some("navigation.push"),
+                                    set_action_target_value: Some(&"servers".to_variant()),
+                                },
+                            },
+                            add_top_bar = &adw::Banner {
+                                #[watch]
+                                set_revealed: model.error.is_some(),
+                                #[watch]
+                                set_title: &model.error.as_ref().map(ServerSettingsError::user_message).unwrap_or_default(),
+                            },
                             adw::StatusPage {
                                 set_icon_name: Some("network-server-symbolic"),
                                 #[watch]
@@ -91,35 +96,79 @@ impl Component for App {
                                     },
                                 )),
                                 set_vexpand: true,
-                            },
-
-                            gtk::Label {
-                                add_css_class: "error",
-                                set_wrap: true,
-                                #[watch]
-                                set_visible: model.error.is_some(),
-                                #[watch]
-                                set_label: &model.error.as_ref().map(ServerSettingsError::user_message).unwrap_or_default(),
-                            },
-
-                            adw::PreferencesGroup {
-                                #[watch]
-                                set_title: t!("app.servers").as_ref(),
-                                #[watch]
-                                set_description: Some(t!("app.default_server_hint").as_ref()),
-                                #[watch]
-                                set_visible: !model.settings.servers().is_empty(),
-
-                                #[name = "servers"]
-                                gtk::ListBox {
-                                    add_css_class: "boxed-list",
-                                    set_selection_mode: gtk::SelectionMode::None,
+                                gtk::Button {
+                                    #[watch]
+                                    set_label: t!("app.add_server").as_ref(),
+                                    set_halign: gtk::Align::Center,
+                                    add_css_class: "suggested-action",
+                                    add_css_class: "pill",
+                                    #[watch]
+                                    set_visible: model.settings.servers().is_empty(),
+                                    connect_clicked => AppMsg::ShowAdd,
                                 },
                             },
                         },
                     },
+                    add = &adw::NavigationPage {
+                        set_tag: Some("servers"),
+                        #[watch]
+                        set_title: t!("app.servers").as_ref(),
+                        adw::ToolbarView {
+                            add_top_bar = &adw::HeaderBar {
+                                pack_start = &gtk::Button {
+                                    set_icon_name: "list-add-symbolic",
+                                    #[watch]
+                                    set_tooltip_text: Some(t!("app.add_server").as_ref()),
+                                    #[watch]
+                                    update_property: &[gtk::accessible::Property::Label(t!("app.add_server").as_ref())],
+                                    connect_clicked => AppMsg::ShowAdd,
+                                },
+                            },
+                            add_top_bar = &adw::Banner {
+                                #[watch]
+                                set_revealed: model.error.is_some(),
+                                #[watch]
+                                set_title: &model.error.as_ref().map(ServerSettingsError::user_message).unwrap_or_default(),
+                            },
+                            gtk::Stack {
+                                add_named[Some("empty")] = &adw::StatusPage {
+                                    set_icon_name: Some("network-server-symbolic"),
+                                    #[watch]
+                                    set_title: t!("app.first_server").as_ref(),
+                                    #[watch]
+                                    set_description: Some(t!("app.start_hint").as_ref()),
+                                    gtk::Button {
+                                        #[watch]
+                                        set_label: t!("app.add_server").as_ref(),
+                                        set_halign: gtk::Align::Center,
+                                        add_css_class: "suggested-action",
+                                        add_css_class: "pill",
+                                        connect_clicked => AppMsg::ShowAdd,
+                                    },
+                                },
+                                add_named[Some("list")] = &gtk::ScrolledWindow {
+                                    set_hscrollbar_policy: gtk::PolicyType::Never,
+                                    adw::Clamp {
+                                        set_maximum_size: 640,
+                                        set_margin_all: 24,
+                                        adw::PreferencesGroup {
+                                            set_valign: gtk::Align::Start,
+                                            #[watch]
+                                            set_description: Some(t!("app.default_server_hint").as_ref()),
+                                            #[name = "servers"]
+                                            gtk::ListBox {
+                                                add_css_class: "boxed-list",
+                                                set_selection_mode: gtk::SelectionMode::None,
+                                            },
+                                        },
+                                    },
+                                },
+                                #[watch]
+                                set_visible_child_name: if model.settings.servers().is_empty() { "empty" } else { "list" },
+                            },
+                        },
+                    },
                 },
-            },
         }
     }
 
@@ -155,37 +204,49 @@ impl Component for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update_with_view(
+        &mut self,
+        widgets: &mut Self::Widgets,
+        message: Self::Input,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
         match message {
             AppMsg::Opened => {
                 if self.settings.servers().is_empty() {
-                    self.dialog.present(root, true);
+                    self.dialog.present(root, &self.settings, None);
                 }
             }
-            AppMsg::ShowAdd => self
-                .dialog
-                .present(root, self.settings.servers().is_empty()),
+            AppMsg::ShowAdd => self.dialog.present(root, &self.settings, None),
+            AppMsg::EditServer(index) => self.dialog.present(root, &self.settings, Some(index)),
             AppMsg::SaveServer => {
-                match self.settings.add_server(
+                match self.settings.save_server(
+                    self.dialog.editing,
                     &self.dialog.name.text(),
                     &self.dialog.ip.text(),
                     &self.dialog.port.text(),
                     self.dialog.make_default.is_active(),
                 ) {
                     Ok(()) => {
-                        self.active = Some(self.settings.servers().len() - 1);
+                        if self.dialog.editing.is_none() {
+                            self.active = Some(self.settings.servers().len() - 1);
+                            widgets.navigation.pop_to_tag("home");
+                        }
                         self.dialog.validation_error = None;
                         self.dialog.dialog.close();
                         self.error = None;
                     }
                     Err(error) => {
-                        tracing::warn!(error = %error, "Could not add server");
+                        tracing::warn!(error = %error, "Could not save server");
                         self.dialog.validation_error = Some(error);
                         self.dialog.retranslate();
                     }
                 }
             }
-            AppMsg::OpenServer(index) => self.active = Some(index),
+            AppMsg::OpenServer(index) => {
+                self.active = Some(index);
+                widgets.navigation.pop_to_tag("home");
+            }
             AppMsg::SetDefault(index) => {
                 self.error = self.settings.set_default(index).err();
             }
@@ -199,6 +260,7 @@ impl Component for App {
                 Err(error) => self.error = Some(error),
             },
         }
+        self.update_view(widgets, sender);
     }
 
     fn post_view() {
@@ -229,6 +291,9 @@ impl App {
             let row = adw::ActionRow::builder()
                 .title(&server.name)
                 .use_markup(false)
+                .title_lines(1)
+                .subtitle_lines(1)
+                .activatable(server.ip.is_ok())
                 .build();
             match &server.ip {
                 Ok(ip) => {
@@ -242,42 +307,74 @@ impl App {
                 }
             }
             let default = gtk::Button::builder()
-                .label(if server.is_default {
+                .icon_name(if server.is_default {
+                    "starred-symbolic"
+                } else {
+                    "non-starred-symbolic"
+                })
+                .tooltip_text(if server.is_default {
                     t!("server.default").to_string()
                 } else {
                     t!("server.make_default").to_string()
                 })
-                .tooltip_text(t!("server.open_default_hint").to_string())
-                .sensitive(!server.is_default)
+                .sensitive(!server.is_default && server.ip.is_ok())
                 .valign(gtk::Align::Center)
                 .build();
+            default.add_css_class("flat");
+            default.update_property(&[gtk::accessible::Property::Label(
+                if server.is_default {
+                    t!("server.default")
+                } else {
+                    t!("server.make_default")
+                }
+                .as_ref(),
+            )]);
             let input = sender.input_sender().clone();
             default.connect_clicked(move |_| {
                 input.emit(AppMsg::SetDefault(index));
             });
             row.add_suffix(&default);
 
-            let is_active = self.active == Some(index);
-            let open = gtk::Button::builder()
-                .label(if is_active {
-                    t!("server.current").to_string()
-                } else {
-                    t!("server.open").to_string()
-                })
-                .sensitive(!is_active && server.ip.is_ok())
+            let edit = gtk::Button::builder()
+                .icon_name("document-edit-symbolic")
+                .tooltip_text(t!("server.edit").as_ref())
                 .valign(gtk::Align::Center)
                 .build();
+            edit.add_css_class("flat");
+            edit.update_property(&[gtk::accessible::Property::Label(t!("server.edit").as_ref())]);
             let input = sender.input_sender().clone();
-            open.connect_clicked(move |_| {
-                input.emit(AppMsg::OpenServer(index));
+            edit.connect_clicked(move |_| input.emit(AppMsg::EditServer(index)));
+            row.add_suffix(&edit);
+
+            let current = self.active == Some(index);
+            let indicator = gtk::Image::from_icon_name(if current {
+                "object-select-symbolic"
+            } else {
+                "go-next-symbolic"
             });
-            row.add_suffix(&open);
+            if current {
+                indicator.set_tooltip_text(Some(t!("server.current").as_ref()));
+                indicator.update_property(&[gtk::accessible::Property::Label(
+                    t!("server.current").as_ref(),
+                )]);
+            } else {
+                indicator.add_css_class("dim-label");
+            }
+            indicator.set_visible(server.ip.is_ok());
+            row.add_suffix(&indicator);
+            if server.ip.is_ok() {
+                let input = sender.input_sender().clone();
+                row.connect_activated(move |_| {
+                    input.emit(AppMsg::OpenServer(index));
+                });
+            }
             list.append(&row);
         }
     }
 }
 
 struct ServerDialog {
+    editing: Option<usize>,
     dialog: adw::Dialog,
     name: adw::EntryRow,
     ip: adw::EntryRow,
@@ -337,12 +434,18 @@ impl ServerDialog {
         body.append(&error);
         let toolbar = adw::ToolbarView::new();
         toolbar.add_top_bar(&header);
-        toolbar.set_content(Some(&body));
+        let scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_height(true)
+            .child(&body)
+            .build();
+        toolbar.set_content(Some(&scroll));
         dialog.set_child(Some(&toolbar));
         dialog.set_default_widget(Some(&save));
         dialog.set_focus(Some(&name));
 
         let form = Self {
+            editing: None,
             dialog,
             name,
             ip,
@@ -358,9 +461,23 @@ impl ServerDialog {
     }
 
     fn retranslate(&self) {
-        self.dialog.set_title(t!("dialog.title").as_ref());
+        self.dialog.set_title(
+            if self.editing.is_some() {
+                t!("server.edit")
+            } else {
+                t!("dialog.title")
+            }
+            .as_ref(),
+        );
         self.cancel.set_label(t!("dialog.cancel").as_ref());
-        self.save.set_label(t!("dialog.connect").as_ref());
+        self.save.set_label(
+            if self.editing.is_some() {
+                t!("dialog.save")
+            } else {
+                t!("dialog.connect")
+            }
+            .as_ref(),
+        );
         self.name.set_title(t!("dialog.server_name").as_ref());
         self.ip.set_title(t!("dialog.ip").as_ref());
         self.port.set_title(t!("dialog.port").as_ref());
@@ -376,14 +493,36 @@ impl ServerDialog {
         self.error.set_visible(self.validation_error.is_some());
     }
 
-    fn present(&mut self, parent: &adw::ApplicationWindow, first_server: bool) {
-        self.name.set_text("");
-        self.ip.set_text("");
-        self.port.set_text("2023");
-        self.make_default.set_active(first_server);
-        self.make_default.set_sensitive(!first_server);
+    fn present(
+        &mut self,
+        parent: &adw::ApplicationWindow,
+        settings: &ServerSettings,
+        editing: Option<usize>,
+    ) {
+        self.editing = editing;
+        match editing {
+            Some(index) => {
+                let server = &settings.servers()[index];
+                self.name.set_text(&server.name);
+                self.ip.set_text(&match &server.ip {
+                    Ok(ip) => ip.to_string(),
+                    Err(error) => error.value.clone(),
+                });
+                self.port.set_text(&server.port.to_string());
+                self.make_default.set_active(server.is_default);
+                self.make_default.set_sensitive(!server.is_default);
+            }
+            None => {
+                self.name.set_text("");
+                self.ip.set_text("");
+                self.port.set_text("2023");
+                self.make_default.set_active(settings.servers().is_empty());
+                self.make_default
+                    .set_sensitive(!settings.servers().is_empty());
+            }
+        }
         self.validation_error = None;
-        self.error.set_visible(false);
+        self.retranslate();
         self.dialog.set_focus(Some(&self.name));
         self.dialog.present(Some(parent));
     }
@@ -416,8 +555,11 @@ mod tests {
     }
 
     fn click(root: &impl IsA<gtk::Widget>, label: &str) {
-        find_widget::<gtk::Button>(root, &|button| button.label().as_deref() == Some(label))
-            .unwrap_or_else(|| panic!("Missing button: {label}"))
+        let matches =
+            |button: &gtk::Button| button.label().as_deref() == Some(label) && button.is_mapped();
+        wait_for(|| find_widget::<gtk::Button>(root, &matches).is_some());
+        find_widget::<gtk::Button>(root, &matches)
+            .unwrap()
             .emit_clicked();
     }
 
@@ -462,15 +604,41 @@ mod tests {
         assert_eq!(dialog.title(), "Connect to Server");
         wait_for(|| dialog.is_mapped() && dialog.width() > 0);
 
+        click(&dialog, "Cancel");
+        wait_for(|| window.visible_dialog().is_none());
+        let servers_button = find_widget::<gtk::Button>(window, &|button| {
+            button.icon_name().as_deref() == Some("network-server-symbolic")
+        })
+        .expect("The header must provide a server management entry");
+        servers_button.emit_clicked();
+        let navigation = find_widget::<adw::NavigationView>(window, &|_| true).unwrap();
+        wait_for(|| navigation.visible_page_tag().as_deref() == Some("servers"));
+        assert!(
+            find_widget::<adw::StatusPage>(window, &|page| {
+                page.title() == "Add your first server" && page.is_mapped()
+            })
+            .is_some()
+        );
+        gtk::prelude::WidgetExt::activate_action(
+            &navigation.visible_page().unwrap(),
+            "navigation.pop",
+            None,
+        )
+        .unwrap();
+        wait_for(|| navigation.visible_page_tag().as_deref() == Some("home"));
+        assert!(find_widget::<gtk::ListBox>(window, &|list| list.is_mapped()).is_none());
+        click(window, "Add Server");
+        wait_for(|| window.visible_dialog().is_some());
+
         fill(&dialog, "Server Name", "Home");
         fill(&dialog, "IP Address", "192.168.1.2");
         fill(&dialog, "Port", "2023");
         click(&dialog, "Connect");
         wait_for(|| window.visible_dialog().is_none());
-        let status = find_widget::<adw::StatusPage>(window, &|_| true).unwrap();
+        let status = find_widget::<adw::StatusPage>(window, &|page| page.is_mapped()).unwrap();
         assert_eq!(status.title(), "Connected to Home");
         let menu = find_widget::<gtk::MenuButton>(window, &|button| {
-            button.label().as_deref() == Some("Language")
+            button.icon_name().as_deref() == Some("preferences-desktop-locale-symbolic")
         })
         .unwrap();
         let languages = menu.menu_model().unwrap();
@@ -490,12 +658,10 @@ mod tests {
             Some("zh_CN")
         );
         assert_eq!(status.title(), "已连接 Home");
-        assert_eq!(menu.label().as_deref(), Some("语言"));
-        assert!(
-            find_widget::<gtk::Button>(window, &|button| button.label().as_deref()
-                == Some("添加服务器"))
-            .is_some()
-        );
+        assert_eq!(menu.tooltip_text().as_deref(), Some("语言"));
+        assert_eq!(servers_button.tooltip_text().as_deref(), Some("服务器"));
+        assert_eq!(navigation.find_page("servers").unwrap().title(), "服务器");
+        assert!(menu.label().is_none());
         assert_eq!(
             languages
                 .item_attribute_value(0, "label", None)
@@ -527,7 +693,13 @@ mod tests {
             Some(0)
         );
 
-        click(window, "Add Server");
+        servers_button.emit_clicked();
+        wait_for(|| navigation.visible_page_tag().as_deref() == Some("servers"));
+        find_widget::<gtk::Button>(window, &|button| {
+            button.icon_name().as_deref() == Some("list-add-symbolic")
+        })
+        .unwrap()
+        .emit_clicked();
         wait_for(|| window.visible_dialog().is_some());
         let dialog = window.visible_dialog().unwrap();
         fill(&dialog, "Server Name", "Home");
@@ -593,13 +765,21 @@ mod tests {
         click(&dialog, "Connect");
         wait_for(|| window.visible_dialog().is_none());
         assert_eq!(status.title(), "Connected to Office");
+        assert_eq!(navigation.visible_page_tag().as_deref(), Some("home"));
+        servers_button.emit_clicked();
+        wait_for(|| navigation.visible_page_tag().as_deref() == Some("servers"));
         let row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Office").unwrap();
-        click(&row, "Make Default");
+        find_widget::<gtk::Button>(&row, &|button| {
+            button.icon_name().as_deref() == Some("non-starred-symbolic")
+        })
+        .unwrap()
+        .emit_clicked();
         wait_for(|| ServerSettings::load(settings.clone()).default_server_index() == Some(1));
 
         let row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Home").unwrap();
-        click(&row, "Open");
+        adw::prelude::ActionRowExt::activate(&row);
         wait_for(|| status.title() == "Connected to Home");
+        assert_eq!(navigation.visible_page_tag().as_deref(), Some("home"));
         window.close();
         drop(controller);
 
@@ -609,7 +789,8 @@ mod tests {
             .detach();
         reopened.widget().present();
         wait_for(|| reopened.widget().is_mapped());
-        let status = find_widget::<adw::StatusPage>(reopened.widget(), &|_| true).unwrap();
+        let status =
+            find_widget::<adw::StatusPage>(reopened.widget(), &|page| page.is_mapped()).unwrap();
         assert_eq!(status.title(), "已连接 Office");
         assert!(reopened.widget().visible_dialog().is_none());
         gtk::prelude::WidgetExt::activate_action(
@@ -637,30 +818,152 @@ mod tests {
         reopened.widget().present();
         wait_for(|| reopened.widget().is_mapped());
         assert!(reopened.widget().visible_dialog().is_none());
+        let status =
+            find_widget::<adw::StatusPage>(reopened.widget(), &|page| page.is_mapped()).unwrap();
+        let servers_button = find_widget::<gtk::Button>(reopened.widget(), &|button| {
+            button.icon_name().as_deref() == Some("network-server-symbolic")
+        })
+        .unwrap();
+        servers_button.emit_clicked();
+        let navigation = find_widget::<adw::NavigationView>(reopened.widget(), &|_| true).unwrap();
+        wait_for(|| navigation.visible_page_tag().as_deref() == Some("servers"));
         let broken =
             find_widget::<adw::ActionRow>(reopened.widget(), &|row| row.title() == "Broken")
                 .unwrap();
         assert_eq!(broken.subtitle().as_deref(), Some("Invalid IP address"));
-        let open = find_widget::<gtk::Button>(&broken, &|button| {
-            button.label().as_deref() == Some("Current")
-        })
-        .unwrap();
-        assert!(!open.is_sensitive());
-        let status = find_widget::<adw::StatusPage>(reopened.widget(), &|_| true).unwrap();
+        assert!(!broken.is_activatable());
         assert!(!status.title().starts_with("Connected to"));
         assert_eq!(status.description().as_deref(), Some("Invalid IP address"));
 
         let home =
             find_widget::<adw::ActionRow>(reopened.widget(), &|row| row.title() == "Home").unwrap();
-        click(&home, "Open");
+        adw::prelude::ActionRowExt::activate(&home);
         wait_for(|| status.title() == "Connected to Home");
+        servers_button.emit_clicked();
+        wait_for(|| navigation.visible_page_tag().as_deref() == Some("servers"));
         let home =
             find_widget::<adw::ActionRow>(reopened.widget(), &|row| row.title() == "Home").unwrap();
-        click(&home, "Make Default");
+        find_widget::<gtk::Button>(&home, &|button| {
+            button.icon_name().as_deref() == Some("non-starred-symbolic")
+        })
+        .unwrap()
+        .emit_clicked();
         wait_for(|| !settings.get::<Vec<(String, String, u16, bool)>>("servers")[0].3);
         let records = settings.get::<Vec<(String, String, u16, bool)>>("servers");
         assert_eq!(records[0].1, "not-an-ip");
         assert!(records[1].3);
+
+        let broken =
+            find_widget::<adw::ActionRow>(reopened.widget(), &|row| row.title() == "Broken")
+                .unwrap();
+        adw::prelude::ActionRowExt::activate(&broken);
+        while glib::MainContext::default().pending() {
+            glib::MainContext::default().iteration(false);
+        }
+        assert_eq!(navigation.visible_page_tag().as_deref(), Some("servers"));
+        assert_eq!(status.title(), "Connected to Home");
+        assert!(
+            !find_widget::<gtk::Button>(&broken, &|button| {
+                button.icon_name().as_deref() == Some("non-starred-symbolic")
+            })
+            .unwrap()
+            .is_sensitive()
+        );
+
+        let edit = find_widget::<gtk::Button>(&broken, &|button| {
+            button.icon_name().as_deref() == Some("document-edit-symbolic")
+        })
+        .expect("Invalid servers must remain editable");
+        assert!(edit.is_sensitive());
+        edit.emit_clicked();
+        wait_for(|| reopened.widget().visible_dialog().is_some());
+        let dialog = reopened.widget().visible_dialog().unwrap();
+        assert_eq!(dialog.title(), "Edit Server");
+        assert_eq!(
+            find_widget::<adw::EntryRow>(&dialog, &|row| row.title() == "IP Address")
+                .unwrap()
+                .text(),
+            "not-an-ip"
+        );
+        fill(&dialog, "IP Address", "192.168.1.10");
+        click(&dialog, "Cancel");
+        wait_for(|| reopened.widget().visible_dialog().is_none());
+        assert_eq!(
+            settings.get::<Vec<(String, String, u16, bool)>>("servers"),
+            records
+        );
+
+        let broken =
+            find_widget::<adw::ActionRow>(reopened.widget(), &|row| row.title() == "Broken")
+                .unwrap();
+        find_widget::<gtk::Button>(&broken, &|button| {
+            button.icon_name().as_deref() == Some("document-edit-symbolic")
+        })
+        .unwrap()
+        .emit_clicked();
+        wait_for(|| reopened.widget().visible_dialog().is_some());
+        assert_eq!(
+            find_widget::<adw::EntryRow>(&dialog, &|row| row.title() == "IP Address")
+                .unwrap()
+                .text(),
+            "not-an-ip"
+        );
+        fill(&dialog, "Server Name", "Repaired");
+        fill(&dialog, "IP Address", "192.168.1.10");
+        fill(&dialog, "Port", "9090");
+        gtk::prelude::WidgetExt::activate_action(
+            reopened.widget(),
+            "preferences.language",
+            Some(&"zh_CN".to_variant()),
+        )
+        .unwrap();
+        wait_for(|| dialog.title() == "编辑服务器");
+        assert_eq!(
+            find_widget::<adw::EntryRow>(&dialog, &|row| row.title() == "服务器名称")
+                .unwrap()
+                .text(),
+            "Repaired"
+        );
+        click(&dialog, "保存");
+        wait_for(|| reopened.widget().visible_dialog().is_none());
+        gtk::prelude::WidgetExt::activate_action(
+            reopened.widget(),
+            "preferences.language",
+            Some(&"en".to_variant()),
+        )
+        .unwrap();
+        wait_for(|| status.title() == "Connected to Home");
+        assert_eq!(navigation.visible_page_tag().as_deref(), Some("servers"));
+        assert_eq!(status.title(), "Connected to Home");
+        assert_eq!(
+            settings.get::<Vec<(String, String, u16, bool)>>("servers"),
+            vec![
+                ("Repaired".into(), "192.168.1.10".into(), 9090, false),
+                ("Home".into(), "127.0.0.1".into(), 8080, true),
+            ]
+        );
+        let repaired =
+            find_widget::<adw::ActionRow>(reopened.widget(), &|row| row.title() == "Repaired")
+                .unwrap();
+        assert!(repaired.is_activatable());
+        adw::prelude::ActionRowExt::activate(&repaired);
+        wait_for(|| status.title() == "Connected to Repaired");
+        servers_button.emit_clicked();
+        wait_for(|| navigation.visible_page_tag().as_deref() == Some("servers"));
+        let repaired =
+            find_widget::<adw::ActionRow>(reopened.widget(), &|row| row.title() == "Repaired")
+                .unwrap();
+        find_widget::<gtk::Button>(&repaired, &|button| {
+            button.icon_name().as_deref() == Some("document-edit-symbolic")
+        })
+        .unwrap()
+        .emit_clicked();
+        wait_for(|| reopened.widget().visible_dialog().is_some());
+        fill(&dialog, "Server Name", "Renamed");
+        click(&dialog, "Save");
+        wait_for(|| reopened.widget().visible_dialog().is_none());
+        assert_eq!(status.title(), "Connected to Renamed");
+        assert_eq!(navigation.visible_page_tag().as_deref(), Some("servers"));
         reopened.widget().close();
     }
 }

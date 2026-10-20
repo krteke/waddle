@@ -64,8 +64,9 @@ impl ServerSettings {
         Ok(())
     }
 
-    pub fn add_server(
+    pub fn save_server(
         &mut self,
+        index: Option<usize>,
         name: &str,
         ip: &str,
         port: &str,
@@ -76,7 +77,12 @@ impl ServerSettings {
             return Err(ServerSettingsError::EmptyName);
         }
 
-        if self.servers.iter().any(|server| server.name == name) {
+        if self
+            .servers
+            .iter()
+            .enumerate()
+            .any(|(other_index, server)| Some(other_index) != index && server.name == name)
+        {
             return Err(ServerSettingsError::DuplicateName { name: name.into() });
         }
 
@@ -93,18 +99,24 @@ impl ServerSettings {
             .filter(|port| *port > 0)
             .ok_or_else(|| ServerSettingsError::InvalidPort { value: port.into() })?;
 
-        let is_default = self.servers.is_empty() || make_default;
+        let is_default = self.servers.is_empty()
+            || make_default
+            || index.is_some_and(|index| self.servers[index].is_default);
         let mut servers = self.servers.clone();
         if is_default {
             servers.iter_mut().for_each(|s| s.is_default = false);
         }
 
-        servers.push(Server {
+        let server = Server {
             name: name.into(),
             ip: Ok(ip),
             port,
             is_default,
-        });
+        };
+        match index {
+            Some(index) => servers[index] = server,
+            None => servers.push(server),
+        }
 
         self.save(servers)
     }
@@ -177,11 +189,117 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn editing_repairs_an_address_and_preserves_other_servers() {
+        let settings = settings();
+        settings
+            .set(
+                "servers",
+                vec![
+                    ("Broken", "bad-ip", 2023u16, true),
+                    ("Office", "::1", 8080u16, false),
+                ],
+            )
+            .unwrap();
+        let mut config = ServerSettings::load(settings.clone());
+
+        config
+            .save_server(Some(0), " Repaired ", " 127.0.0.1 ", " 9090 ", false)
+            .unwrap();
+
+        assert_eq!(
+            ServerSettings::load(settings).servers(),
+            &[
+                Server {
+                    name: "Repaired".into(),
+                    ip: Ok("127.0.0.1".parse().unwrap()),
+                    port: 9090,
+                    is_default: true
+                },
+                Server {
+                    name: "Office".into(),
+                    ip: Ok("::1".parse().unwrap()),
+                    port: 8080,
+                    is_default: false
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn editing_keeps_its_name_and_can_become_default() {
+        let settings = settings();
+        settings
+            .set(
+                "servers",
+                vec![
+                    ("Home", "127.0.0.1", 2023u16, true),
+                    ("Office", "::1", 8080u16, false),
+                ],
+            )
+            .unwrap();
+        let mut config = ServerSettings::load(settings.clone());
+
+        config
+            .save_server(Some(1), "Office", "::1", "9090", true)
+            .unwrap();
+
+        assert_eq!(
+            settings.get::<Vec<(String, String, u16, bool)>>("servers"),
+            vec![
+                ("Home".into(), "127.0.0.1".into(), 2023, false),
+                ("Office".into(), "::1".into(), 9090, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn editing_rejects_another_servers_name_without_changing_settings() {
+        let settings = settings();
+        settings
+            .set(
+                "servers",
+                vec![
+                    ("Home", "127.0.0.1", 2023u16, true),
+                    ("Office", "::1", 8080u16, false),
+                ],
+            )
+            .unwrap();
+        let mut config = ServerSettings::load(settings.clone());
+        let before = config.servers().to_vec();
+
+        assert!(matches!(
+            config.save_server(Some(1), " Home ", "::1", "9090", true),
+            Err(ServerSettingsError::DuplicateName { .. })
+        ));
+
+        assert_eq!(config.servers(), before);
+        assert_eq!(ServerSettings::load(settings).servers(), before);
+    }
+
+    #[test]
+    fn editing_rejects_invalid_addresses_without_changing_settings() {
+        let settings = settings();
+        settings
+            .set("servers", vec![("Home", "127.0.0.1", 2023u16, true)])
+            .unwrap();
+        let mut config = ServerSettings::load(settings.clone());
+        let before = config.servers().to_vec();
+
+        assert!(matches!(
+            config.save_server(Some(0), "Renamed", "bad-ip", "9090", true),
+            Err(ServerSettingsError::InvalidIp(_))
+        ));
+
+        assert_eq!(config.servers(), before);
+        assert_eq!(ServerSettings::load(settings).servers(), before);
+    }
+
+    #[test]
     fn first_server_becomes_default_without_requesting_it() {
         let settings = settings();
         let mut config = ServerSettings::load(settings.clone());
         config
-            .add_server("Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "192.168.1.2", "2023", false)
             .unwrap();
 
         let reopened = ServerSettings::load(settings);
@@ -200,10 +318,10 @@ pub(crate) mod tests {
     fn adding_another_server_preserves_existing_default() {
         let mut config = ServerSettings::load(settings());
         config
-            .add_server("Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "192.168.1.2", "2023", false)
             .unwrap();
         config
-            .add_server("Office", "10.0.0.2", "8080", false)
+            .save_server(None, "Office", "10.0.0.2", "8080", false)
             .unwrap();
 
         assert_eq!(config.default_server_index(), Some(0));
@@ -214,10 +332,10 @@ pub(crate) mod tests {
     fn adding_an_explicit_default_replaces_previous_default() {
         let mut config = ServerSettings::load(settings());
         config
-            .add_server("Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "192.168.1.2", "2023", false)
             .unwrap();
         config
-            .add_server("Office", "10.0.0.2", "8080", true)
+            .save_server(None, "Office", "10.0.0.2", "8080", true)
             .unwrap();
 
         assert_eq!(config.default_server_index(), Some(1));
@@ -229,10 +347,10 @@ pub(crate) mod tests {
         let settings = settings();
         let mut config = ServerSettings::load(settings.clone());
         config
-            .add_server("Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "192.168.1.2", "2023", false)
             .unwrap();
         config
-            .add_server("Office", "10.0.0.2", "8080", false)
+            .save_server(None, "Office", "10.0.0.2", "8080", false)
             .unwrap();
         config.set_default(1).unwrap();
 
@@ -246,12 +364,12 @@ pub(crate) mod tests {
         let settings = settings();
         let mut config = ServerSettings::load(settings.clone());
         config
-            .add_server("Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "192.168.1.2", "2023", false)
             .unwrap();
         let before = config.servers().to_vec();
 
         assert!(
-            matches!(config.add_server(" Home ", "10.0.0.2", "8080", true), Err(ServerSettingsError::DuplicateName { name }) if name == "Home")
+            matches!(config.save_server(None, " Home ", "10.0.0.2", "8080", true), Err(ServerSettingsError::DuplicateName { name }) if name == "Home")
         );
         assert_eq!(ServerSettings::load(settings).servers(), before);
     }
@@ -260,7 +378,7 @@ pub(crate) mod tests {
     fn empty_name_is_rejected() {
         let mut config = ServerSettings::load(settings());
         assert!(matches!(
-            config.add_server("  ", "127.0.0.1", "2023", false),
+            config.save_server(None, "  ", "127.0.0.1", "2023", false),
             Err(ServerSettingsError::EmptyName)
         ));
         assert!(config.servers().is_empty());
@@ -270,7 +388,7 @@ pub(crate) mod tests {
     fn non_ip_address_is_rejected() {
         let mut config = ServerSettings::load(settings());
         assert!(
-            matches!(config.add_server("Home", "https://example.com", "2023", false), Err(ServerSettingsError::InvalidIp(InvalidIpAddress { value, .. })) if value == "https://example.com")
+            matches!(config.save_server(None, "Home", "https://example.com", "2023", false), Err(ServerSettingsError::InvalidIp(InvalidIpAddress { value, .. })) if value == "https://example.com")
         );
         assert!(config.servers().is_empty());
     }
@@ -279,7 +397,7 @@ pub(crate) mod tests {
     fn zero_port_is_rejected() {
         let mut config = ServerSettings::load(settings());
         assert!(
-            matches!(config.add_server("Home", "127.0.0.1", "0", false), Err(ServerSettingsError::InvalidPort { value }) if value == "0")
+            matches!(config.save_server(None, "Home", "127.0.0.1", "0", false), Err(ServerSettingsError::InvalidPort { value }) if value == "0")
         );
     }
 
@@ -287,7 +405,7 @@ pub(crate) mod tests {
     fn out_of_range_port_is_rejected() {
         let mut config = ServerSettings::load(settings());
         assert!(
-            matches!(config.add_server("Home", "127.0.0.1", "65536", false), Err(ServerSettingsError::InvalidPort { value }) if value == "65536")
+            matches!(config.save_server(None, "Home", "127.0.0.1", "65536", false), Err(ServerSettingsError::InvalidPort { value }) if value == "65536")
         );
     }
 
@@ -295,7 +413,7 @@ pub(crate) mod tests {
     fn ipv6_address_can_be_saved() {
         let mut config = ServerSettings::load(settings());
         config
-            .add_server(" IPv6 ", " ::1 ", " 65535 ", false)
+            .save_server(None, " IPv6 ", " ::1 ", " 65535 ", false)
             .unwrap();
         let server = &config.servers()[config.default_server_index().unwrap()];
         assert_eq!(server.name, "IPv6");
@@ -335,7 +453,7 @@ pub(crate) mod tests {
             .unwrap();
         let mut config = ServerSettings::load(settings.clone());
         config
-            .add_server("Home", "127.0.0.1", "8080", false)
+            .save_server(None, "Home", "127.0.0.1", "8080", false)
             .unwrap();
 
         assert_eq!(
@@ -381,7 +499,7 @@ pub(crate) mod tests {
         let mut config = ServerSettings::load(settings);
 
         assert!(matches!(
-            config.add_server("Home", "127.0.0.1", "2023", false),
+            config.save_server(None, "Home", "127.0.0.1", "2023", false),
             Err(ServerSettingsError::Save(_))
         ));
         assert!(config.servers().is_empty());
@@ -397,9 +515,11 @@ pub(crate) mod tests {
         let mut config =
             ServerSettings::load(gio::Settings::new_full(&schema, Some(&backend), None));
         config
-            .add_server("Home", "192.168.1.2", "2023", false)
+            .save_server(None, "Home", "192.168.1.2", "2023", false)
             .unwrap();
-        config.add_server("Office", "::1", "8080", true).unwrap();
+        config
+            .save_server(None, "Office", "::1", "8080", true)
+            .unwrap();
         gio::Settings::sync();
         drop(config);
         drop(backend);

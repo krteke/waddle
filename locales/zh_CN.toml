@@ -1,6 +1,5 @@
 [app]
 add_server = "添加服务器"
-add_server_hint = "添加 dae-wing 服务器"
 first_server = "添加你的第一台服务器"
 start_hint = "保存服务器连接信息，即可开始管理。"
 placeholder  =  "服务器占位页面"
@@ -8,16 +7,16 @@ servers = "服务器"
 default_server_hint = "默认服务器将在启动时自动打开。"
 
 [server]
+edit = "编辑服务器"
 connected = "已连接 %{name}"
 invalid_address_title = "%{name} · 地址无效"
 invalid_ip = "IP 地址无效"
 default = "默认"
 make_default = "设为默认"
-open_default_hint = "启动时默认打开此服务器"
 current = "当前"
-open = "打开"
 
 [dialog]
+save = "保存"
 title = "连接服务器"
 cancel = "取消"
 connect = "连接"
@@ -36,5 +35,5 @@ save = "无法保存设置。"
 [language]
 title = "语言"
 system = "跟随系统"
-english = "英语"
+english = "English"
 chinese = "简体中文"
