@@ -496,6 +496,80 @@ fn server_management_and_authentication_lifecycle() {
             && banner.title() == "Server health check failed. Try again later.")
         .is_some()
     );
+    click_icon(window, "network-server-symbolic");
+    let row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Home").unwrap();
+    click_icon(&row, "user-trash-symbolic");
+    wait_for(|| window.visible_dialog().is_some());
+    let confirm = window.visible_dialog().unwrap();
+    click(&confirm, "Cancel");
+    wait_for(|| window.visible_dialog().is_none());
+    assert_eq!(ServerSettings::load(settings.clone()).servers().len(), 2);
+    assert!(
+        runtime
+            .block_on(credentials::load("Home"))
+            .unwrap()
+            .is_some()
+    );
+    let office_row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Office").unwrap();
+    adw::prelude::ActionRowExt::activate(&office_row);
+    wait_for(|| connected(window, "Connected to Office"));
+    click_icon(window, "network-server-symbolic");
+    let row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Home").unwrap();
+    click_icon(&row, "user-trash-symbolic");
+    wait_for(|| window.visible_dialog().is_some());
+    click(&window.visible_dialog().unwrap(), "Delete");
+    wait_for(|| {
+        window.is_sensitive() && ServerSettings::load(settings.clone()).servers().len() == 1
+    });
+    let remaining = ServerSettings::load(settings.clone());
+    assert_eq!(remaining.servers()[0].name, "Office");
+    assert!(remaining.servers()[0].is_default);
+    assert!(
+        runtime
+            .block_on(credentials::load("Home"))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        runtime
+            .block_on(credentials::load("Office"))
+            .unwrap()
+            .is_some()
+    );
+    gtk::prelude::WidgetExt::activate_action(
+        &navigation.visible_page().unwrap(),
+        "navigation.pop",
+        None,
+    )
+    .unwrap();
+    wait_for(|| connected(window, "Connected to Office"));
+    // Removing an earlier row must not break the active connection's messages.
+    click(window, "Sign Out");
+    wait_for(|| window.visible_dialog().is_some());
+    let login = window.visible_dialog().unwrap();
+    assert_eq!(login.title(), "Sign In");
+    assert!(ServerSettings::load(settings.clone()).servers()[0].logged_out);
+    click(&login, "Sign In");
+    wait_for(|| connected(window, "Connected to Office"));
+    click_icon(window, "network-server-symbolic");
+    let row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Office").unwrap();
+    click_icon(&row, "user-trash-symbolic");
+    wait_for(|| window.visible_dialog().is_some());
+    click(&window.visible_dialog().unwrap(), "Delete");
+    wait_for(|| {
+        window.is_sensitive() && ServerSettings::load(settings.clone()).servers().is_empty()
+    });
+    assert!(
+        find_widget::<adw::StatusPage>(window, &|page| page.is_mapped()
+            && page.title() == "Add your first server")
+        .is_some()
+    );
+    assert!(
+        runtime
+            .block_on(credentials::load("Office"))
+            .unwrap()
+            .is_none()
+    );
     window.close();
     drop(controller);
 

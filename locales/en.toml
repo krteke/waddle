@@ -6,6 +6,9 @@ servers = "Servers"
 default_server_hint = "The default server opens when Waddle starts."
 
 [server]
+delete = "Delete"
+delete_title = "Delete Server"
+delete_hint = "Remove “%{name}” from Waddle? Its saved password and session will also be deleted."
 edit = "Edit Server"
 connected = "Connected to %{name}"
 invalid_address_title = "%{name} · Invalid address"
@@ -25,6 +28,7 @@ port = "Port"
 make_default = "Use as default server"
 
 [error]
+delete_credentials = "Server removed, but saved credentials could not be deleted."
 empty_name = "Enter a server name."
 duplicate_name = "A server with this name already exists."
 invalid_ip = "Enter a valid IP address."

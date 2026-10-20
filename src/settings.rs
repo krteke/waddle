@@ -132,6 +132,19 @@ impl ServerSettings {
         self.save(servers)
     }
 
+    pub fn delete_server(&mut self, index: usize) -> Result<(), ServerSettingsError> {
+        let mut servers = self.servers.clone();
+        let removed = servers.remove(index);
+
+        if removed.is_default
+            && let Some(server) = servers.first_mut()
+        {
+            server.is_default = true;
+        }
+
+        self.save(servers)
+    }
+
     pub fn login(&mut self, index: usize) -> Result<(), ServerSettingsError> {
         self.set_logged_out(index, false)
     }
@@ -238,6 +251,82 @@ pub(crate) mod tests {
         assert_eq!(ServerSettings::load(settings.clone()).language(), "zh_CN");
         config.set_language("").unwrap();
         assert_eq!(ServerSettings::load(settings).language(), "");
+    }
+
+    #[test]
+    fn deleting_non_default_server_preserves_remaining_records() {
+        let backend = settings();
+        backend
+            .set(
+                "servers",
+                vec![
+                    ("Remove", "127.0.0.1", 2023u16, false, true),
+                    ("Keep", "::1", 8080u16, true, true),
+                ],
+            )
+            .unwrap();
+        let mut config = ServerSettings::load(backend.clone());
+        let remaining = config.servers()[1].clone();
+        config.delete_server(0).unwrap();
+        assert_eq!(config.servers(), std::slice::from_ref(&remaining));
+        assert_eq!(ServerSettings::load(backend).servers(), &[remaining]);
+    }
+
+    #[test]
+    fn deleting_default_server_promotes_first_remaining_server() {
+        let backend = settings();
+        backend
+            .set(
+                "servers",
+                vec![
+                    ("Keep", "bad-ip", 2023u16, false, true),
+                    ("Remove", "::1", 8080u16, true, false),
+                ],
+            )
+            .unwrap();
+        let mut config = ServerSettings::load(backend.clone());
+        let mut remaining = config.servers()[0].clone();
+        remaining.is_default = true;
+        config.delete_server(1).unwrap();
+        assert_eq!(ServerSettings::load(backend).servers(), &[remaining]);
+    }
+
+    #[test]
+    fn deleting_last_server_leaves_no_default() {
+        let backend = settings();
+        backend
+            .set("servers", vec![("Last", "bad-ip", 2023u16, true, true)])
+            .unwrap();
+        let mut config = ServerSettings::load(backend.clone());
+        config.delete_server(0).unwrap();
+        let reopened = ServerSettings::load(backend);
+        assert!(reopened.servers().is_empty());
+        assert_eq!(reopened.default_server_index(), None);
+    }
+
+    #[test]
+    fn failed_deletion_keeps_the_server_record() {
+        let source =
+            gio::SettingsSchemaSource::from_directory(env!("OUT_DIR"), None, false).unwrap();
+        let schema = source.lookup(APPLICATION_ID, false).unwrap();
+        let backend =
+            gio::Settings::new_full(&schema, Some(&gio::null_settings_backend_new()), None);
+        let mut config = ServerSettings {
+            settings: backend,
+            servers: vec![Server {
+                name: "Keep".into(),
+                ip: Ok("127.0.0.1".parse().unwrap()),
+                port: 2023,
+                is_default: true,
+                logged_out: true,
+            }],
+        };
+        let before = config.servers().to_vec();
+        assert!(matches!(
+            config.delete_server(0),
+            Err(ServerSettingsError::Save(_))
+        ));
+        assert_eq!(config.servers(), before);
     }
 
     #[test]

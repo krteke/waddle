@@ -17,6 +17,26 @@ pub struct ServerPage {
 }
 
 impl ServerPage {
+    pub fn confirm_delete(&self, parent: &adw::ApplicationWindow, index: usize, name: &str) {
+        let dialog = adw::AlertDialog::builder()
+            .heading(t!("server.delete_title").as_ref())
+            .body(t!("server.delete_hint", name = name).as_ref())
+            .build();
+
+        dialog.add_response("cancel", t!("dialog.cancel").as_ref());
+        dialog.add_response("delete", t!("server.delete").as_ref());
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+
+        let input = self.input.clone();
+
+        dialog.connect_response(Some("delete"), move |_, _| {
+            input.emit(AppMsg::DeleteServer(index))
+        });
+        dialog.present(Some(parent));
+    }
+
     pub fn new(input: Sender<AppMsg>) -> Self {
         let add = gtk::Button::from_icon_name("list-add-symbolic");
         let messages = input.clone();
@@ -164,6 +184,20 @@ impl ServerPage {
             let input = self.input.clone();
             edit.connect_clicked(move |_| input.emit(AppMsg::EditServer(index)));
             row.add_suffix(&edit);
+
+            let delete = gtk::Button::builder()
+                .icon_name("user-trash-symbolic")
+                .tooltip_text(t!("server.delete_title").as_ref())
+                .valign(gtk::Align::Center)
+                .build();
+            delete.add_css_class("flat");
+            delete.update_property(&[gtk::accessible::Property::Label(
+                t!("server.delete_title").as_ref(),
+            )]);
+
+            let input = self.input.clone();
+            delete.connect_clicked(move |_| input.emit(AppMsg::ShowDelete(index)));
+            row.add_suffix(&delete);
 
             let current = active == Some(index);
             let indicator = gtk::Image::from_icon_name(if current {

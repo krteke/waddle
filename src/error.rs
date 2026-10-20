@@ -81,6 +81,8 @@ pub struct InvalidIpAddress {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerSettingsError {
+    #[error("Server removed, but saved credentials could not be deleted: {0}")]
+    DeleteCredentials(#[source] CredentialError),
     #[error("Server name is empty")]
     EmptyName,
     #[error("Server name {name:?} already exists")]
@@ -96,6 +98,7 @@ pub enum ServerSettingsError {
 impl ServerSettingsError {
     pub fn user_message(&self) -> String {
         match self {
+            Self::DeleteCredentials(_) => t!("error.delete_credentials").to_string(),
             Self::EmptyName => t!("error.empty_name").to_string(),
             Self::DuplicateName { .. } => t!("error.duplicate_name").to_string(),
             Self::InvalidIp(_) => t!("error.invalid_ip").to_string(),

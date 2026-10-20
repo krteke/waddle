@@ -6,6 +6,9 @@ servers = "服务器"
 default_server_hint = "默认服务器将在启动时自动打开。"
 
 [server]
+delete = "删除"
+delete_title = "删除服务器"
+delete_hint = "要从 Waddle 中移除“%{name}”吗？保存的密码和会话也将被删除。"
 edit = "编辑服务器"
 connected = "已连接 %{name}"
 invalid_address_title = "%{name} · 地址无效"
@@ -25,6 +28,7 @@ port = "端口"
 make_default = "设为默认服务器"
 
 [error]
+delete_credentials = "服务器已移除，但无法删除保存的凭据。"
 empty_name = "请输入服务器名称。"
 duplicate_name = "服务器名称已存在。"
 invalid_ip = "请输入有效的 IP 地址。"

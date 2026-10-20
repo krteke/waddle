@@ -62,6 +62,16 @@ pub async fn load(server: &str) -> Result<Option<Credentials>, CredentialError> 
     }
 }
 
+pub async fn delete(server: &str) -> Result<(), CredentialError> {
+    let keyring = oo7::Keyring::new().await?;
+    keyring.unlock().await?;
+    keyring
+        .delete(&[("application", APPLICATION_ID), ("server", server)])
+        .await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

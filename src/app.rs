@@ -4,7 +4,8 @@ use relm4::{adw, gtk, prelude::*};
 use rust_i18n::t;
 
 use crate::{
-    error::ServerSettingsError,
+    credentials,
+    error::{CredentialError, ServerSettingsError},
     settings::ServerSettings,
     ui::{
         connection::{Connection, ConnectionMsg, ConnectionOutput},
@@ -20,6 +21,7 @@ pub struct App {
     dialog: ServerDialog,
     server_page: ServerPage,
     error: Option<ServerSettingsError>,
+    deleting: bool,
     language_action: gio::SimpleAction,
     language_menu: gio::Menu,
 }
@@ -29,11 +31,13 @@ pub enum AppMsg {
     Opened,
     ShowAdd,
     EditServer(usize),
+    ShowDelete(usize),
+    DeleteServer(usize),
     SaveServer,
     OpenServer(usize),
     SetDefault(usize),
     SetLanguage(String),
-    Connection(usize, ConnectionOutput),
+    Connection(String, ConnectionOutput),
 }
 
 #[relm4::component(pub)]
@@ -41,10 +45,12 @@ impl Component for App {
     type Init = ServerSettings;
     type Input = AppMsg;
     type Output = ();
-    type CommandOutput = ();
+    type CommandOutput = Result<(), CredentialError>;
 
     view! {
         adw::ApplicationWindow {
+            #[watch]
+            set_sensitive: !model.deleting,
             set_title: Some("Waddle"),
             set_default_size: (760, 600),
             connect_map => AppMsg::Opened,
@@ -139,6 +145,7 @@ impl Component for App {
             dialog: ServerDialog::new(&sender),
             server_page: ServerPage::new(sender.input_sender().clone()),
             error: None,
+            deleting: false,
             language_action,
             language_menu: gio::Menu::new(),
         };
@@ -169,6 +176,33 @@ impl Component for App {
             }
             AppMsg::ShowAdd => self.dialog.present(root, &self.settings, None),
             AppMsg::EditServer(index) => self.dialog.present(root, &self.settings, Some(index)),
+            AppMsg::ShowDelete(index) => {
+                self.server_page
+                    .confirm_delete(root, index, &self.settings.servers()[index].name);
+            }
+            AppMsg::DeleteServer(index) => {
+                let name = self.settings.servers()[index].name.clone();
+                match self.settings.delete_server(index) {
+                    Ok(()) => {
+                        self.error = None;
+                        self.deleting = true;
+                        match self.active {
+                            Some(active) if active == index => {
+                                self.active = self.settings.default_server_index();
+                                self.open_connection(root, &widgets.connection_content, &sender);
+                            }
+                            Some(active) if active > index => self.active = Some(active - 1),
+                            _ => {}
+                        }
+                        sender.oneshot_command(async move {
+                            credentials::delete(&name).await.inspect_err(|error| {
+                                tracing::warn!(server = %name, %error, "Could not delete saved credentials");
+                            })
+                        });
+                    }
+                    Err(error) => self.error = Some(error),
+                }
+            }
             AppMsg::SaveServer => {
                 match self.settings.save_server(
                     self.dialog.editing,
@@ -201,8 +235,11 @@ impl Component for App {
                 self.open_connection(root, &widgets.connection_content, &sender);
                 widgets.navigation.pop_to_tag("home");
             }
-            AppMsg::Connection(index, event) => {
-                if self.active != Some(index) {
+            AppMsg::Connection(name, event) => {
+                let Some(index) = self.active else {
+                    return;
+                };
+                if self.settings.servers()[index].name != name {
                     return;
                 }
                 match event {
@@ -250,6 +287,18 @@ impl Component for App {
         self.server_page
             .refresh(self.settings.servers(), self.active, self.error.as_ref());
     }
+
+    fn update_cmd(
+        &mut self,
+        result: Self::CommandOutput,
+        _sender: ComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
+        self.deleting = false;
+        if let Err(error) = result {
+            self.error = Some(ServerSettingsError::DeleteCredentials(error));
+        }
+    }
 }
 
 impl App {
@@ -262,12 +311,15 @@ impl App {
         if let Some(connection) = self.connection.take() {
             content.remove(connection.widget());
         }
-        let index = self.active.unwrap();
+        let Some(index) = self.active else {
+            return;
+        };
         let server = self.settings.servers()[index].clone();
+        let name = server.name.clone();
         let connection = Connection::builder()
             .launch((root.clone(), server))
             .forward(sender.input_sender(), move |event| {
-                AppMsg::Connection(index, event)
+                AppMsg::Connection(name.clone(), event)
             });
         content.append(connection.widget());
         self.connection = Some(connection);
