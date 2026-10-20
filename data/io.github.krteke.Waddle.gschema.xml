@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<schemalist>
+  <schema id="io.github.krteke.Waddle" path="/io/github/krteke/Waddle/">
+    <key name="language" type="s">
+      <default>''</default>
+      <choices>
+        <choice value=""/>
+        <choice value="en"/>
+        <choice value="zh_CN"/>
+      </choices>
+      <summary>Interface language</summary>
+      <description>An empty value follows the system language.</description>
+    </key>
+    <key name="servers" type="a(ssqb)">
+      <default>[]</default>
+      <summary>Saved servers</summary>
+      <description>Server name, IP address, port and default flag.</description>
+    </key>
+  </schema>
+</schemalist>

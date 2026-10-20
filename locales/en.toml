@@ -1,0 +1,39 @@
+[app]
+add_server = "Add Server"
+add_server_hint = "Add a dae-wing server"
+first_server = "Add your first server"
+start_hint = "Save a server to start managing it."
+placeholder = "Placeholder page"
+servers = "Servers"
+default_server_hint = "The default server opens when Waddle starts."
+
+[server]
+connected = "Connected to %{name}"
+invalid_address_title = "%{name} · Invalid address"
+invalid_ip = "Invalid IP address"
+default = "Default"
+make_default = "Make Default"
+open_default_hint = "Open this server by default at startup"
+current = "Current"
+open = "Open"
+
+[dialog]
+title = "Connect to Server"
+cancel = "Cancel"
+connect = "Connect"
+server_name = "Server Name"
+ip = "IP Address"
+port = "Port"
+make_default = "Use as default server"
+[error]
+empty_name = "Enter a server name."
+duplicate_name = "A server with this name already exists."
+invalid_ip = "Enter a valid IP address."
+invalid_port = "Enter a port between 1 and 65535."
+save = "Could not save settings."
+
+[language]
+title = "Language"
+system = "Follow System"
+english = "English"
+chinese = "Chinese (Simplified)"

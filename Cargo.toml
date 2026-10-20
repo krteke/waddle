@@ -7,9 +7,12 @@ edition = "2024"
 graphql_client = "0.16.0"
 oo7 = "0.6.0"
 relm4 = { version = "0.11.0", features = ["libadwaita", "gnome_50"] }
+thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 reqwest = "0.13.5"
-toml = "1.1.8"
-tokio = "1.53.3"
+tokio = "1.54.0"
+rust-i18n = "4.2.4"
 
 [profile.release]
 lto = "thin"
