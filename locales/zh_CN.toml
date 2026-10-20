@@ -6,12 +6,11 @@ servers = "服务器"
 default_server_hint = "默认服务器将在启动时自动打开。"
 
 [server]
+select = "选择服务器"
 delete = "删除"
 delete_title = "删除服务器"
 delete_hint = "要从 Waddle 中移除“%{name}”吗？保存的密码和会话也将被删除。"
 edit = "编辑服务器"
-connected = "已连接 %{name}"
-invalid_address_title = "%{name} · 地址无效"
 invalid_ip = "IP 地址无效"
 default = "默认"
 make_default = "设为默认"
@@ -41,7 +40,19 @@ system = "跟随系统"
 english = "English"
 chinese = "简体中文"
 
+[navigation]
+overview = "概览"
+groups = "策略组"
+nodes = "节点"
+subscriptions = "订阅"
+configurations = "配置"
+toggle_sidebar = "切换侧边栏"
+hide_sidebar = "收起侧边栏"
+
 [auth]
+status = "登录状态"
+connected = "已连接"
+disconnected = "未连接"
 create_title = "创建管理员"
 login_title = "登录"
 username = "用户名"
@@ -64,3 +75,9 @@ login_error = "登录失败，请检查用户名和密码。"
 create_error = "无法创建管理员，请检查账号信息后重试。"
 read_error = "无法读取已保存的凭据，请输入用户名和密码。"
 save_error = "登录成功。"
+
+[proxy]
+service = "代理服务"
+status = "代理运行状态"
+unknown = "未知"
+placeholder = "代理控制尚未接入。"

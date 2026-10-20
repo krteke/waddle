@@ -6,12 +6,11 @@ servers = "Servers"
 default_server_hint = "The default server opens when Waddle starts."
 
 [server]
+select = "Select Server"
 delete = "Delete"
 delete_title = "Delete Server"
 delete_hint = "Remove “%{name}” from Waddle? Its saved password and session will also be deleted."
 edit = "Edit Server"
-connected = "Connected to %{name}"
-invalid_address_title = "%{name} · Invalid address"
 invalid_ip = "Invalid IP address"
 default = "Default"
 make_default = "Make Default"
@@ -41,7 +40,19 @@ system = "Follow System"
 english = "English"
 chinese = "简体中文"
 
+[navigation]
+overview = "Overview"
+groups = "Policy Groups"
+nodes = "Nodes"
+subscriptions = "Subscriptions"
+configurations = "Configurations"
+toggle_sidebar = "Toggle Sidebar"
+hide_sidebar = "Hide Sidebar"
+
 [auth]
+status = "Login Status"
+connected = "Connected"
+disconnected = "Disconnected"
 create_title = "Create Administrator"
 login_title = "Sign In"
 username = "Username"
@@ -64,3 +75,9 @@ login_error = "Could not sign in. Check your username and password."
 create_error = "Could not create the administrator. Check the account details and try again."
 read_error = "Could not read saved credentials. Enter your username and password."
 save_error = "Signed in."
+
+[proxy]
+service = "Proxy Service"
+status = "Proxy Status"
+unknown = "Unknown"
+placeholder = "Proxy control is not connected yet."

@@ -55,12 +55,12 @@ mod tests {
     #[test]
     fn translations_interpolate_server_names() {
         assert_eq!(
-            t!("server.connected", locale = "zh_CN", name = "Home").to_string(),
-            "已连接 Home"
+            t!("auth.login_hint", locale = "zh_CN", name = "Home").to_string(),
+            "登录 Home"
         );
         assert_eq!(
-            t!("server.connected", locale = "en", name = "Home").to_string(),
-            "Connected to Home"
+            t!("auth.login_hint", locale = "en", name = "Home").to_string(),
+            "Sign in to Home"
         );
     }
 }

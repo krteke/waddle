@@ -24,7 +24,11 @@ pub struct ServerDialog {
 
 impl ServerDialog {
     pub fn new(sender: &ComponentSender<App>) -> Self {
-        let dialog = adw::Dialog::builder().content_width(440).build();
+        let dialog = adw::Dialog::builder()
+            .content_width(440)
+            .content_height(336)
+            .build();
+
         let cancel = gtk::Button::new();
         cancel.connect_clicked(glib::clone!(
             #[weak]
@@ -33,6 +37,7 @@ impl ServerDialog {
                 dialog.close();
             }
         ));
+
         let save = gtk::Button::new();
         save.add_css_class("suggested-action");
         let input = sender.input_sender().clone();

@@ -11,6 +11,7 @@ use crate::{
         connection::{Connection, ConnectionMsg, ConnectionOutput},
         server::dialog::ServerDialog,
         server::page::ServerPage,
+        workspace::Workspace,
     },
 };
 
@@ -20,6 +21,7 @@ pub struct App {
     connection: Option<Controller<Connection>>,
     dialog: ServerDialog,
     server_page: ServerPage,
+    workspace: Workspace,
     error: Option<ServerSettingsError>,
     deleting: bool,
     language_action: gio::SimpleAction,
@@ -52,7 +54,8 @@ impl Component for App {
             #[watch]
             set_sensitive: !model.deleting,
             set_title: Some("Waddle"),
-            set_default_size: (760, 600),
+            set_default_size: (900, 640),
+            set_size_request: (360, 360),
             connect_map => AppMsg::Opened,
 
             #[name = "navigation"]
@@ -61,58 +64,8 @@ impl Component for App {
                 add = &adw::NavigationPage {
                     set_tag: Some("home"),
                     set_title: "Waddle",
-                    adw::ToolbarView {
-                        add_top_bar = &adw::HeaderBar {
-                            pack_end = &gtk::MenuButton {
-                                set_icon_name: "preferences-desktop-locale-symbolic",
-                                #[watch]
-                                set_tooltip_text: Some(t!("language.title").as_ref()),
-                                #[watch]
-                                update_property: &[gtk::accessible::Property::Label(t!("language.title").as_ref())],
-                                set_menu_model: Some(&model.language_menu),
-                            },
-                            pack_end = &gtk::Button {
-                                set_icon_name: "network-server-symbolic",
-                                #[watch]
-                                set_tooltip_text: Some(t!("app.servers").as_ref()),
-                                #[watch]
-                                update_property: &[gtk::accessible::Property::Label(t!("app.servers").as_ref())],
-                                set_action_name: Some("navigation.push"),
-                                set_action_target_value: Some(&"servers".to_variant()),
-                            },
-                        },
-                        add_top_bar = &adw::Banner {
-                            #[watch]
-                            set_revealed: model.error.is_some(),
-                            #[watch]
-                            set_title: &model.error.as_ref().map(ServerSettingsError::user_message).unwrap_or_default(),
-                        },
-                        gtk::Stack {
-                            add_named[Some("empty")] = &adw::StatusPage {
-                                set_icon_name: Some("network-server-symbolic"),
-                                #[watch]
-                                set_title: t!("app.first_server").as_ref(),
-                                #[watch]
-                                set_description: Some(t!("app.start_hint").as_ref()),
-                                gtk::Button {
-                                    #[watch]
-                                    set_label: t!("app.add_server").as_ref(),
-                                    set_halign: gtk::Align::Center,
-                                    add_css_class: "suggested-action",
-                                    add_css_class: "pill",
-                                    connect_clicked => AppMsg::ShowAdd,
-                                },
-                            },
-                            #[name = "connection_content"]
-                            add_named[Some("connection")] = &gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                set_hexpand: true,
-                                set_vexpand: true,
-                            },
-                            #[watch]
-                            set_visible_child_name: if model.active.is_some() { "connection" } else { "empty" },
-                        },
-                    },
+                    #[local_ref]
+                    workspace -> adw::OverlaySplitView {},
                 },
                 #[local_ref]
                 add = server_page -> adw::NavigationPage {},
@@ -138,25 +91,41 @@ impl Component for App {
         let actions = gio::SimpleActionGroup::new();
         actions.add_action(&language_action);
         root.insert_action_group("preferences", Some(&actions));
+        let language_menu = gio::Menu::new();
         let mut model = Self {
             active: settings.default_server_index(),
             connection: None,
             settings,
             dialog: ServerDialog::new(&sender),
             server_page: ServerPage::new(sender.input_sender().clone()),
+            workspace: Workspace::new(&language_menu),
             error: None,
             deleting: false,
             language_action,
-            language_menu: gio::Menu::new(),
+            language_menu,
         };
         model.render_language_menu();
         model
             .server_page
             .refresh(model.settings.servers(), model.active, model.error.as_ref());
+        model.workspace.refresh(
+            model.settings.servers(),
+            model.active,
+            None,
+            sender.input_sender(),
+        );
+        let breakpoint =
+            adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 640sp").unwrap());
+        breakpoint.add_setters(&[
+            (&model.workspace.view, "collapsed", true),
+            (&model.workspace.view, "show-sidebar", false),
+        ]);
+        root.add_breakpoint(breakpoint);
+        let workspace = &model.workspace.view;
         let server_page = &model.server_page.page;
         let widgets = view_output!();
         if model.active.is_some() {
-            model.open_connection(&root, &widgets.connection_content, &sender);
+            model.open_connection(&root, &sender);
         }
         ComponentParts { model, widgets }
     }
@@ -189,7 +158,7 @@ impl Component for App {
                         match self.active {
                             Some(active) if active == index => {
                                 self.active = self.settings.default_server_index();
-                                self.open_connection(root, &widgets.connection_content, &sender);
+                                self.open_connection(root, &sender);
                             }
                             Some(active) if active > index => self.active = Some(active - 1),
                             _ => {}
@@ -220,7 +189,7 @@ impl Component for App {
                         self.dialog.dialog.close();
                         self.error = None;
                         if self.dialog.editing.is_none() || self.dialog.editing == self.active {
-                            self.open_connection(root, &widgets.connection_content, &sender);
+                            self.open_connection(root, &sender);
                         }
                     }
                     Err(error) => {
@@ -232,7 +201,7 @@ impl Component for App {
             }
             AppMsg::OpenServer(index) => {
                 self.active = Some(index);
-                self.open_connection(root, &widgets.connection_content, &sender);
+                self.open_connection(root, &sender);
                 widgets.navigation.pop_to_tag("home");
             }
             AppMsg::Connection(name, event) => {
@@ -284,6 +253,15 @@ impl Component for App {
     }
 
     fn post_view() {
+        self.workspace.refresh(
+            self.settings.servers(),
+            self.active,
+            self.error
+                .as_ref()
+                .map(ServerSettingsError::user_message)
+                .as_deref(),
+            sender.input_sender(),
+        );
         self.server_page
             .refresh(self.settings.servers(), self.active, self.error.as_ref());
     }
@@ -302,26 +280,28 @@ impl Component for App {
 }
 
 impl App {
-    fn open_connection(
-        &mut self,
-        root: &adw::ApplicationWindow,
-        content: &gtk::Box,
-        sender: &ComponentSender<Self>,
-    ) {
+    fn open_connection(&mut self, root: &adw::ApplicationWindow, sender: &ComponentSender<Self>) {
         if let Some(connection) = self.connection.take() {
-            content.remove(connection.widget());
+            self.workspace
+                .connection_content
+                .remove(connection.widget());
         }
+
         let Some(index) = self.active else {
             return;
         };
+
         let server = self.settings.servers()[index].clone();
         let name = server.name.clone();
         let connection = Connection::builder()
-            .launch((root.clone(), server))
+            .launch((root.clone(), server, self.workspace.overview.clone()))
             .forward(sender.input_sender(), move |event| {
                 AppMsg::Connection(name.clone(), event)
             });
-        content.append(connection.widget());
+
+        self.workspace
+            .connection_content
+            .append(connection.widget());
         self.connection = Some(connection);
     }
 

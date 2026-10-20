@@ -4,7 +4,7 @@ use adw::prelude::*;
 use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
 
-use super::login_dialog::LoginDialog;
+use super::{login_dialog::LoginDialog, overview::Overview};
 use crate::{
     api::Api,
     auth::{self, AuthResult},
@@ -29,6 +29,8 @@ pub struct Connection {
     phase: Phase,
     error: Option<ConnectionError>,
     login: LoginDialog,
+    overview: Overview,
+    overview_stack: gtk::Stack,
 }
 
 #[derive(Debug)]
@@ -48,7 +50,7 @@ pub enum ConnectionOutput {
 
 #[relm4::component(pub)]
 impl Component for Connection {
-    type Init = (adw::ApplicationWindow, Server);
+    type Init = (adw::ApplicationWindow, Server, gtk::Stack);
     type Input = ConnectionMsg;
     type Output = ConnectionOutput;
     type CommandOutput = AuthResult;
@@ -56,63 +58,78 @@ impl Component for Connection {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
-            adw::Banner {
-                #[watch]
-                set_revealed: model.error.is_some(),
-                #[watch]
-                set_title: &model.error.as_ref().map(ConnectionError::user_message).unwrap_or_default(),
-            },
-            adw::StatusPage {
-                set_vexpand: true,
-                set_icon_name: Some("network-server-symbolic"),
-                #[watch]
-                set_title: &match &model.phase {
-                    Phase::Connected { .. } => t!("server.connected", name = &model.server_name).to_string(),
-                    Phase::InvalidAddress => t!("server.invalid_address_title", name = &model.server_name).to_string(),
-                    _ => model.server_name.clone(),
+            set_spacing: 8,
+            gtk::Box {
+                set_spacing: 8,
+                gtk::Spinner {
+                    #[watch]
+                    set_spinning: matches!(model.phase, Phase::Checking | Phase::SigningIn),
+                    #[watch]
+                    set_visible: matches!(model.phase, Phase::Checking | Phase::SigningIn),
                 },
+                gtk::Image {
+                    #[watch]
+                    set_icon_name: Some(if matches!(model.phase, Phase::Connected { .. }) { "object-select-symbolic" } else { "network-offline-symbolic" }),
+                    #[watch]
+                    set_css_classes: if matches!(model.phase, Phase::Connected { .. }) { &["success"] } else { &["dim-label"] },
+                    #[watch]
+                    set_visible: !matches!(model.phase, Phase::Checking | Phase::SigningIn),
+                },
+                gtk::Label {
+                    add_css_class: "caption",
+                    set_xalign: 0.0,
+                    set_hexpand: true,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
+                    #[watch]
+                    set_label: match &model.phase {
+                        Phase::Connected { .. } => t!("auth.connected"),
+                        Phase::InvalidAddress => t!("server.invalid_ip"),
+                        Phase::Checking => t!("auth.checking"),
+                        Phase::SigningIn => t!("auth.signing_in"),
+                        _ => t!("auth.disconnected"),
+                    }.as_ref(),
+                    #[watch]
+                    set_tooltip_text: match &model.phase {
+                        Phase::Connected { api, username } => Some(format!("{}\n{}", t!("auth.signed_in", username = username), api.endpoint())),
+                        _ => None,
+                    }.as_deref(),
+                },
+            },
+            gtk::Label {
+                set_xalign: 0.0,
+                set_wrap: true,
+                add_css_class: "error",
                 #[watch]
-                set_description: Some(&match &model.phase {
-                    Phase::InvalidAddress => t!("server.invalid_ip").to_string(),
-                    Phase::Checking => t!("auth.checking").to_string(),
-                    Phase::AwaitingCredentials => t!("auth.required").to_string(),
-                    Phase::SigningIn => t!("auth.signing_in").to_string(),
-                    Phase::Connected { api, username } => format!("{}\n{}", api.endpoint(), t!("auth.signed_in", username = gtk::glib::markup_escape_text(username))),
-                    Phase::Failed => t!("auth.connection_error").to_string(),
-                }),
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 16,
-                    set_halign: gtk::Align::Center,
-                    gtk::Spinner {
-                        #[watch]
-                        set_spinning: matches!(model.phase, Phase::Checking | Phase::SigningIn),
-                        #[watch]
-                        set_visible: matches!(model.phase, Phase::Checking | Phase::SigningIn),
-                    },
-                    gtk::Button {
-                        add_css_class: "suggested-action",
-                        add_css_class: "pill",
-                        #[watch]
-                        set_label: if matches!(model.phase, Phase::AwaitingCredentials) { t!("auth.login") } else { t!("auth.retry") }.as_ref(),
-                        #[watch]
-                        set_visible: matches!(model.phase, Phase::AwaitingCredentials | Phase::Failed),
-                        connect_clicked[sender] => move |_| { sender.output(ConnectionOutput::Retry).unwrap(); },
-                    },
-                    gtk::Button {
-                        #[watch]
-                        set_label: t!("auth.sign_out").as_ref(),
-                        #[watch]
-                        set_visible: matches!(model.phase, Phase::Connected { .. }),
-                        connect_clicked[sender] => move |_| { sender.output(ConnectionOutput::SignOut).unwrap(); },
-                    },
+                set_visible: model.error.is_some(),
+                #[watch]
+                set_label: &model.error.as_ref().map(ConnectionError::user_message).unwrap_or_default(),
+            },
+            gtk::Button {
+                set_halign: gtk::Align::Start,
+                #[watch]
+                set_label: if matches!(model.phase, Phase::AwaitingCredentials) { t!("auth.login") } else { t!("auth.retry") }.as_ref(),
+                #[watch]
+                set_visible: matches!(model.phase, Phase::AwaitingCredentials | Phase::Failed),
+                connect_clicked[sender] => move |_| { sender.output(ConnectionOutput::Retry).unwrap(); },
+            },
+            gtk::ListBox {
+                add_css_class: "boxed-list",
+                set_selection_mode: gtk::SelectionMode::None,
+                #[watch]
+                set_visible: matches!(model.phase, Phase::Connected { .. }),
+                adw::SwitchRow {
+                    set_sensitive: false,
+                    #[watch]
+                    set_title: t!("proxy.service").as_ref(),
+                    #[watch]
+                    set_tooltip_text: Some(t!("proxy.placeholder").as_ref()),
                 },
             },
         }
     }
 
     fn init(
-        (parent, server): Self::Init,
+        (parent, server, overview_stack): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -129,6 +146,8 @@ impl Component for Connection {
         };
 
         let login = LoginDialog::new(&sender, &server.name);
+        let overview = Overview::new(&sender);
+        overview_stack.add_child(&overview.content);
         let model = Self {
             server_name: server.name,
             parent,
@@ -136,6 +155,8 @@ impl Component for Connection {
             phase,
             error: None,
             login,
+            overview,
+            overview_stack,
         };
 
         let widgets = view_output!();
@@ -241,7 +262,18 @@ impl Component for Connection {
         );
     }
 
+    fn post_view() {
+        if let Phase::Connected { username, .. } = &self.phase {
+            self.overview.refresh(username);
+            self.overview_stack
+                .set_visible_child(&self.overview.content);
+        } else {
+            self.overview_stack.set_visible_child_name("placeholder");
+        }
+    }
+
     fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
         self.login.close();
+        self.overview_stack.remove(&self.overview.content);
     }
 }
