@@ -5,7 +5,7 @@ use rust_i18n::t;
 
 use crate::{
     app::{App, AppMsg},
-    error::ServerSettingsError,
+    error::{Message, ServerSettingsError},
     settings::ServerSettings,
 };
 
@@ -157,7 +157,7 @@ impl ServerDialog {
             &self
                 .validation_error
                 .as_ref()
-                .map(ServerSettingsError::user_message)
+                .map(|e| e.user_message())
                 .unwrap_or_default(),
         );
         self.error.set_visible(self.validation_error.is_some());

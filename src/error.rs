@@ -1,6 +1,10 @@
 use relm4::gtk::gio;
 use rust_i18n::t;
 
+pub trait Message {
+    fn user_message(&self) -> String;
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("Server rejected authentication")]
@@ -37,8 +41,8 @@ pub enum ConnectionError {
     SaveCredentials(#[source] CredentialError),
 }
 
-impl ConnectionError {
-    pub fn user_message(&self) -> String {
+impl Message for ConnectionError {
+    fn user_message(&self) -> String {
         match self {
             Self::Session(_) => t!("auth.connection_error"),
             Self::SignOut(_) => t!("auth.sign_out_error"),
@@ -61,6 +65,24 @@ pub enum CredentialError {
     Keyring(#[source] Box<oo7::Error>),
     #[error("Could not encode or decode saved credentials: {0}")]
     Encoding(#[from] serde_json::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProxyError {
+    #[error("Could not read proxy status: {0}")]
+    Read(#[source] ApiError),
+    #[error("Could not change proxy status: {0}")]
+    Change(#[source] ApiError),
+}
+
+impl Message for ProxyError {
+    fn user_message(&self) -> String {
+        match self {
+            Self::Read(_) => t!("proxy.read_error"),
+            Self::Change(_) => t!("proxy.change_error"),
+        }
+        .to_string()
+    }
 }
 
 impl From<oo7::Error> for CredentialError {
@@ -91,15 +113,16 @@ pub enum ServerSettingsError {
     Save(#[from] gio::glib::BoolError),
 }
 
-impl ServerSettingsError {
-    pub fn user_message(&self) -> String {
+impl Message for ServerSettingsError {
+    fn user_message(&self) -> String {
         match self {
-            Self::DeleteCredentials(_) => t!("error.delete_credentials").to_string(),
-            Self::EmptyName => t!("error.empty_name").to_string(),
-            Self::DuplicateName { .. } => t!("error.duplicate_name").to_string(),
-            Self::InvalidUrl(_) => t!("error.invalid_url").to_string(),
-            Self::Save(_) => t!("error.save").to_string(),
+            Self::DeleteCredentials(_) => t!("error.delete_credentials"),
+            Self::EmptyName => t!("error.empty_name"),
+            Self::DuplicateName { .. } => t!("error.duplicate_name"),
+            Self::InvalidUrl(_) => t!("error.invalid_url"),
+            Self::Save(_) => t!("error.save"),
         }
+        .to_string()
     }
 }
 

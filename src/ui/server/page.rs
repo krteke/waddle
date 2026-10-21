@@ -2,7 +2,11 @@ use adw::prelude::*;
 use relm4::{RelmWidgetExt, Sender, adw, gtk};
 use rust_i18n::t;
 
-use crate::{app::AppMsg, error::ServerSettingsError, settings::Server};
+use crate::{
+    app::AppMsg,
+    error::{Message, ServerSettingsError},
+    settings::Server,
+};
 
 pub struct ServerPage {
     pub page: adw::NavigationPage,
@@ -116,11 +120,8 @@ impl ServerPage {
         self.empty_add.set_label(t!("app.add_server").as_ref());
         self.group
             .set_description(Some(t!("app.default_server_hint").as_ref()));
-        self.error.set_title(
-            &error
-                .map(ServerSettingsError::user_message)
-                .unwrap_or_default(),
-        );
+        self.error
+            .set_title(&error.map(|e| e.user_message()).unwrap_or_default());
         self.error.set_revealed(error.is_some());
         self.content
             .set_visible_child_name(if servers.is_empty() { "empty" } else { "list" });

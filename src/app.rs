@@ -5,12 +5,11 @@ use rust_i18n::t;
 
 use crate::{
     credentials,
-    error::{CredentialError, ServerSettingsError},
+    error::{CredentialError, Message, ServerSettingsError},
     settings::ServerSettings,
     ui::{
         connection::{Connection, ConnectionMsg, ConnectionOutput},
-        server::dialog::ServerDialog,
-        server::page::ServerPage,
+        server::{dialog::ServerDialog, page::ServerPage},
         workspace::Workspace,
     },
 };
@@ -259,10 +258,7 @@ impl Component for App {
         self.workspace.refresh(
             self.settings.servers(),
             self.active,
-            self.error
-                .as_ref()
-                .map(ServerSettingsError::user_message)
-                .as_deref(),
+            self.error.as_ref().map(|e| e.user_message()).as_deref(),
             sender.input_sender(),
         );
         self.server_page

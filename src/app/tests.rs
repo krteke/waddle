@@ -8,6 +8,8 @@ use crate::{
 use gtk::glib;
 use std::time::{Duration, Instant};
 
+mod proxy;
+
 fn find_widget<W: IsA<gtk::Widget>>(
     root: &impl IsA<gtk::Widget>,
     matches: &impl Fn(&W) -> bool,
@@ -183,6 +185,7 @@ fn server_management_and_authentication_lifecycle() {
         .set_gtk_enable_animations(false);
     let settings = settings::tests::settings();
     settings.set_string("language", "en").unwrap();
+    proxy::proxy_control(&runtime);
     long_server_menu_stays_scrollable();
     let controller = App::builder()
         .launch(ServerSettings::load(settings.clone()))
@@ -211,11 +214,7 @@ fn server_management_and_authentication_lifecycle() {
         ("groups", "Groups", Some("Resources & Orchestration")),
         ("nodes", "Nodes", None),
         ("subscriptions", "Subscriptions", None),
-        (
-            "configurations",
-            "Global Configuration",
-            Some("System Configuration"),
-        ),
+        ("configurations", "Config", Some("System Configuration")),
         ("dns", "DNS", None),
     ]
     .into_iter()
@@ -399,12 +398,44 @@ fn server_management_and_authentication_lifecycle() {
     })
     .expect("authenticated sidebar must show the proxy switch");
     assert!(proxy.is_visible());
-    assert!(!proxy.is_sensitive(), "proxy control is a placeholder");
+    wait_for(|| proxy.is_sensitive());
+    assert!(
+        !proxy.is_active(),
+        "API-only backend starts with its proxy stopped"
+    );
+    proxy.set_active(true);
+    wait_for(|| {
+        proxy.is_sensitive()
+            && !proxy.is_active()
+            && find_widget::<gtk::Label>(split.sidebar().as_ref().unwrap(), &|label| {
+                label.is_visible() && label.text() == "无法更改代理状态。"
+            })
+            .is_some()
+    });
+    let error_dialog = window
+        .visible_dialog()
+        .expect("proxy startup failure must show details");
+    capture(window, "proxy-backend-error-zh");
+    assert!(
+        find_widget::<gtk::Label>(&error_dialog, &|label| label.text()
+            == "please select a config")
+        .is_some()
+    );
+    click(&error_dialog, "关闭");
+    wait_for(|| window.visible_dialog().is_none());
     let overview = find_widget::<gtk::ListBoxRow>(split.sidebar().as_ref().unwrap(), &|row| {
         find_widget::<gtk::Label>(row, &|label| label.text() == "概览").is_some()
     })
     .unwrap();
     overview.activate();
+    wait_for(|| {
+        find_widget::<adw::ActionRow>(window, &|row| {
+            row.is_mapped()
+                && row.title() == "代理运行状态"
+                && row.subtitle().as_deref() == Some("已停止")
+        })
+        .is_some()
+    });
     wait_for(|| {
         find_widget::<adw::ActionRow>(window, &|row| {
             row.is_mapped()

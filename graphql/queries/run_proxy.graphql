@@ -1,0 +1,3 @@
+mutation RunProxy($dry: Boolean!) {
+  run(dry: $dry)
+}

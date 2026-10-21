@@ -2,11 +2,15 @@ use adw::prelude::*;
 use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
 
-use super::{login_dialog::LoginDialog, overview::Overview};
+use super::{
+    login_dialog::LoginDialog,
+    overview::Overview,
+    proxy::{Proxy, ProxyMsg},
+};
 use crate::{
     api::Api,
     auth::{self, AuthResult},
-    error::ConnectionError,
+    error::{ConnectionError, Message},
     settings::Server,
 };
 
@@ -29,6 +33,8 @@ pub struct Connection {
     login: LoginDialog,
     overview: Overview,
     overview_stack: gtk::Stack,
+    proxy: Option<Controller<Proxy>>,
+    proxy_content: gtk::Box,
 }
 
 #[derive(Debug)]
@@ -37,6 +43,7 @@ pub enum ConnectionMsg {
     Submit,
     SignOut,
     Retranslate,
+    RefreshSession,
 }
 
 #[derive(Debug)]
@@ -100,7 +107,7 @@ impl Component for Connection {
                 #[watch]
                 set_visible: model.error.is_some(),
                 #[watch]
-                set_label: &model.error.as_ref().map(ConnectionError::user_message).unwrap_or_default(),
+                set_label: &model.error.as_ref().map(|e| e.user_message()).unwrap_or_default(),
             },
             gtk::Button {
                 set_halign: gtk::Align::Start,
@@ -110,18 +117,10 @@ impl Component for Connection {
                 set_visible: matches!(model.phase, Phase::AwaitingCredentials | Phase::Failed),
                 connect_clicked[sender] => move |_| { sender.output(ConnectionOutput::Retry).unwrap(); },
             },
-            gtk::ListBox {
-                add_css_class: "boxed-list",
-                set_selection_mode: gtk::SelectionMode::None,
+            #[local_ref]
+            proxy_content -> gtk::Box {
                 #[watch]
                 set_visible: matches!(model.phase, Phase::Connected { .. }),
-                adw::SwitchRow {
-                    set_sensitive: false,
-                    #[watch]
-                    set_title: t!("proxy.service").as_ref(),
-                    #[watch]
-                    set_tooltip_text: Some(t!("proxy.placeholder").as_ref()),
-                },
             },
         }
     }
@@ -151,8 +150,11 @@ impl Component for Connection {
             login,
             overview,
             overview_stack,
+            proxy: None,
+            proxy_content: gtk::Box::new(gtk::Orientation::Vertical, 0),
         };
 
+        let proxy_content = &model.proxy_content;
         let widgets = view_output!();
         if model.api.is_some() {
             sender.input(ConnectionMsg::Retry(server.logged_out));
@@ -162,6 +164,14 @@ impl Component for Connection {
     }
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+        if matches!(
+            message,
+            ConnectionMsg::Retry(_) | ConnectionMsg::Submit | ConnectionMsg::SignOut
+        ) && let Some(proxy) = self.proxy.take()
+        {
+            self.proxy_content.remove(proxy.widget());
+        }
+
         match message {
             ConnectionMsg::Retry(logged_out) => {
                 self.phase = Phase::Checking;
@@ -191,15 +201,19 @@ impl Component for Connection {
                 let server_name = self.server_name.clone();
                 sender.oneshot_command(async move { auth::sign_out(&server_name).await });
             }
-            ConnectionMsg::Retranslate => {}
+            ConnectionMsg::Retranslate => {
+                if let Some(proxy) = &self.proxy {
+                    proxy.emit(ProxyMsg::Retranslate);
+                }
+            }
+            ConnectionMsg::RefreshSession => {
+                sender.output(ConnectionOutput::Retry).unwrap();
+            }
         }
 
         self.login.refresh(
             matches!(self.phase, Phase::SigningIn),
-            self.error
-                .as_ref()
-                .map(ConnectionError::user_message)
-                .as_deref(),
+            self.error.as_ref().map(|e| e.user_message()).as_deref(),
         );
     }
 
@@ -230,6 +244,11 @@ impl Component for Connection {
                 username,
                 warning,
             } => {
+                let proxy = Proxy::builder()
+                    .launch((api.clone(), self.overview.proxy.clone()))
+                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+                self.proxy_content.append(proxy.widget());
+                self.proxy = Some(proxy);
                 self.phase = Phase::Connected { api, username };
                 self.error = warning;
                 if self.error.is_none() {
@@ -249,10 +268,7 @@ impl Component for Connection {
 
         self.login.refresh(
             false,
-            self.error
-                .as_ref()
-                .map(ConnectionError::user_message)
-                .as_deref(),
+            self.error.as_ref().map(|e| e.user_message()).as_deref(),
         );
     }
 

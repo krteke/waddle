@@ -7,7 +7,7 @@ use super::connection::{Connection, ConnectionOutput};
 pub struct Overview {
     pub content: gtk::ScrolledWindow,
     title: gtk::Label,
-    proxy: adw::ActionRow,
+    pub proxy: adw::ActionRow,
     login: adw::ActionRow,
     sign_out: gtk::Button,
 }
@@ -62,7 +62,6 @@ impl Overview {
         self.title.set_label(t!("navigation.overview").as_ref());
 
         self.proxy.set_title(t!("proxy.status").as_ref());
-        self.proxy.set_subtitle(t!("proxy.unknown").as_ref());
 
         self.login.set_title(t!("auth.status").as_ref());
         self.login
