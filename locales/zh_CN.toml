@@ -40,11 +40,16 @@ english = "English"
 chinese = "简体中文"
 
 [navigation]
+runtime = "运行"
+resources = "资源与编排"
+system = "系统配置"
 overview = "概览"
-groups = "策略组"
+routing = "路由"
+groups = "群组"
 nodes = "节点"
 subscriptions = "订阅"
 configurations = "配置"
+dns = "DNS"
 toggle_sidebar = "切换侧边栏"
 hide_sidebar = "收起侧边栏"
 

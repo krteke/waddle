@@ -5,20 +5,39 @@ use rust_i18n::t;
 
 use crate::{app::AppMsg, settings::Server};
 
-const PAGES: [(&str, &str, &str); 5] = [
-    ("overview", "navigation.overview", "view-grid-symbolic"),
-    ("groups", "navigation.groups", "view-list-symbolic"),
-    ("nodes", "navigation.nodes", "network-server-symbolic"),
+const PAGES: [(&str, &str, &str, Option<&str>); 7] = [
+    (
+        "overview",
+        "navigation.overview",
+        "view-grid-symbolic",
+        Some("navigation.runtime"),
+    ),
+    (
+        "routing",
+        "navigation.routing",
+        "network-workgroup-symbolic",
+        None,
+    ),
+    (
+        "groups",
+        "navigation.groups",
+        "view-list-symbolic",
+        Some("navigation.resources"),
+    ),
+    ("nodes", "navigation.nodes", "network-server-symbolic", None),
     (
         "subscriptions",
         "navigation.subscriptions",
         "application-rss+xml-symbolic",
+        None,
     ),
     (
         "configurations",
         "navigation.configurations",
-        "document-properties-symbolic",
+        "preferences-system-symbolic",
+        Some("navigation.system"),
     ),
+    ("dns", "navigation.dns", "web-browser-symbolic", None),
 ];
 
 pub struct Workspace {
@@ -34,6 +53,7 @@ pub struct Workspace {
     hide: gtk::Button,
     error: adw::Banner,
     pages: Vec<(gtk::Label, adw::StatusPage)>,
+    navigation: gtk::ListBox,
 }
 
 impl Workspace {
@@ -91,7 +111,7 @@ impl Workspace {
         let overview = gtk::Stack::new();
         let mut pages = Vec::new();
 
-        PAGES.into_iter().for_each(|(name, _, icon)| {
+        PAGES.into_iter().for_each(|(name, _, icon, _)| {
             let label = gtk::Label::builder().xalign(0.0).build();
             let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
 
@@ -112,6 +132,24 @@ impl Workspace {
             }
 
             pages.push((label, page));
+        });
+
+        navigation.set_header_func(|row, _| {
+            if let Some(key) = PAGES[row.index() as usize].3 {
+                let heading = gtk::Label::builder()
+                    .label(t!(key).as_ref())
+                    .xalign(0.0)
+                    .wrap(true)
+                    .margin_start(10)
+                    .margin_end(10)
+                    .margin_top(12)
+                    .margin_bottom(6)
+                    .accessible_role(gtk::AccessibleRole::Heading)
+                    .build();
+                heading.add_css_class("caption");
+                heading.add_css_class("dim-label");
+                row.set_header(Some(&heading));
+            }
         });
 
         navigation.connect_row_selected(gtk::glib::clone!(
@@ -223,6 +261,7 @@ impl Workspace {
             hide,
             error,
             pages,
+            navigation,
         }
     }
 
@@ -343,9 +382,10 @@ impl Workspace {
         self.pages
             .iter()
             .zip(PAGES)
-            .for_each(|((label, page), (_, key, _))| {
+            .for_each(|((label, page), (_, key, _, _))| {
                 label.set_label(t!(key).as_ref());
                 page.set_title(t!(key).as_ref());
             });
+        self.navigation.invalidate_headers();
     }
 }

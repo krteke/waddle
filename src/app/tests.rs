@@ -201,6 +201,54 @@ fn server_management_and_authentication_lifecycle() {
             .unwrap();
     assert!(split.shows_sidebar());
     assert_eq!(pages.visible_child_name().as_deref(), Some("overview"));
+    let sidebar = split.sidebar().unwrap();
+    let navigation_list =
+        find_widget::<gtk::ListBox>(&sidebar, &|list| list.has_css_class("navigation-sidebar"))
+            .unwrap();
+    for (index, (name, title, section)) in [
+        ("overview", "Overview", Some("Runtime")),
+        ("routing", "Routing", None),
+        ("groups", "Groups", Some("Resources & Orchestration")),
+        ("nodes", "Nodes", None),
+        ("subscriptions", "Subscriptions", None),
+        (
+            "configurations",
+            "Global Configuration",
+            Some("System Configuration"),
+        ),
+        ("dns", "DNS", None),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let row = navigation_list.row_at_index(index as i32).unwrap();
+        assert!(
+            find_widget::<gtk::Label>(&row, &|label| label.text() == title).is_some(),
+            "missing navigation item: {title}"
+        );
+        assert_eq!(
+            row.header()
+                .map(|header| header.downcast::<gtk::Label>().unwrap().text().to_string())
+                .as_deref(),
+            section,
+            "wrong section for {title}"
+        );
+        if let Some(heading) = row.header() {
+            assert!(
+                heading.is_mapped(),
+                "section heading must be visible: {title}"
+            );
+        }
+        row.activate();
+        wait_for(|| pages.visible_child_name().as_deref() == Some(name));
+        assert_eq!(navigation_list.selected_row().as_ref(), Some(&row));
+        assert!(
+            find_widget::<adw::StatusPage>(&pages, &|page| page.is_mapped()
+                && page.title() == title)
+            .is_some()
+        );
+    }
+    assert!(navigation_list.row_at_index(7).is_none());
     let nodes = find_widget::<gtk::ListBoxRow>(window, &|row| {
         find_widget::<gtk::Label>(row, &|label| label.text() == "Nodes").is_some()
     })
@@ -233,11 +281,32 @@ fn server_management_and_authentication_lifecycle() {
     language(window, "zh_CN");
     wait_for(|| {
         find_widget::<gtk::Label>(split.sidebar().as_ref().unwrap(), &|label| {
-            label.text() == "策略组"
+            label.text() == "群组"
         })
         .is_some()
     });
     assert_eq!(pages.visible_child_name().as_deref(), Some("subscriptions"));
+    for (index, title) in [(0, "运行"), (2, "资源与编排"), (5, "系统配置")] {
+        let heading = navigation_list
+            .row_at_index(index)
+            .unwrap()
+            .header()
+            .unwrap();
+        assert_eq!(heading.downcast::<gtk::Label>().unwrap().text(), title);
+    }
+    navigation_list.row_at_index(1).unwrap().activate();
+    wait_for(|| pages.visible_child_name().as_deref() == Some("routing"));
+    capture(window, "navigation-zh");
+    assert_eq!(
+        pages
+            .child_by_name("routing")
+            .unwrap()
+            .downcast::<adw::StatusPage>()
+            .unwrap()
+            .title(),
+        "路由"
+    );
+    navigation_list.row_at_index(4).unwrap().activate();
     language(window, "en");
     let selector = find_widget::<gtk::MenuButton>(window, &|button| {
         button.tooltip_text().as_deref() == Some("Select Server")
