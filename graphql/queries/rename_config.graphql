@@ -1,0 +1,3 @@
+mutation RenameConfig($id: ID!, $name: String!) {
+  renameConfig(id: $id, name: $name)
+}

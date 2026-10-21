@@ -158,9 +158,144 @@ pub(super) fn selection_and_details(
             && find_widget::<gtk::CheckButton>(row, &|c| c.is_active()).is_some())
         .is_some()
     );
+    mutations(runtime, window, wing, &page);
     find_widget::<gtk::ListBoxRow>(window, &|row| {
         find_widget::<gtk::Label>(row, &|l| l.text() == "Overview").is_some()
     })
     .unwrap()
     .activate();
+}
+
+fn open_menu(page: &adw::NavigationPage, name: &str) -> gtk::Popover {
+    let row = find_widget::<adw::ActionRow>(page, &|row| row.title() == name).unwrap();
+    let menu = find_widget::<gtk::MenuButton>(&row, &|_| true).unwrap();
+    menu.popup();
+    let popover = menu.popover().unwrap();
+    wait_for(|| popover.is_mapped());
+    popover
+}
+
+fn mutations(
+    runtime: &tokio::runtime::Runtime,
+    window: &adw::ApplicationWindow,
+    wing: &Wing,
+    page: &adw::NavigationPage,
+) {
+    let created = runtime.block_on(request(wing, r#"mutation {
+        createConfig(name: "Original<&>", global: {logLevel: "debug", tproxyPort: 23459, tproxyPortProtect: false, soMarkFromDae: 0, lanInterface: ["br0", "eth1"], wanInterface: ["auto"], checkInterval: "45s", checkTolerance: "200ms", allowInsecure: true, tlsFragment: true, tlsFragmentLength: "10-30", bandwidthMaxTx: "12 mbps"}) {id}
+    }"#, json!({})));
+    let id = created["createConfig"]["id"].as_str().unwrap();
+    click_icon(page, "view-refresh-symbolic");
+    wait_for(|| find_widget::<adw::ActionRow>(page, &|row| row.title() == "Original<&>").is_some());
+    let original = runtime.block_on(request(
+        wing,
+        include_str!("../../../graphql/queries/configs.graphql"),
+        json!({}),
+    ));
+    let original = original["configs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == id)
+        .unwrap();
+
+    click(&open_menu(page, "Original<&>"), "Create Copy");
+    wait_for(|| {
+        find_widget::<adw::ActionRow>(page, &|row| row.title() == "Original<&> (Copy)").is_some()
+    });
+    let copied = runtime.block_on(request(
+        wing,
+        include_str!("../../../graphql/queries/configs.graphql"),
+        json!({}),
+    ));
+    let copied = copied["configs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "Original<&> (Copy)")
+        .unwrap();
+    assert_ne!(copied["id"], original["id"]);
+    assert_eq!(
+        copied["global"], original["global"],
+        "a copy must retain every global setting, including false, zero, arrays and durations"
+    );
+    assert_eq!(copied["selected"], false);
+    let copy_id = copied["id"].as_str().unwrap();
+
+    click(&open_menu(page, "Original<&> (Copy)"), "Rename");
+    wait_for(|| window.visible_dialog().is_some());
+    let dialog = window.visible_dialog().unwrap();
+    let entry = find_widget::<gtk::Entry>(&dialog, &|_| true).unwrap();
+    assert_eq!(entry.text(), "Original<&> (Copy)");
+    entry.set_text("  ");
+    assert!(
+        !find_widget::<gtk::Button>(&dialog, &|b| b.label().as_deref() == Some("Rename"))
+            .unwrap()
+            .is_sensitive()
+    );
+    entry.set_text("Renamed<&>");
+    click(&dialog, "Rename");
+    wait_for(|| find_widget::<adw::ActionRow>(page, &|row| row.title() == "Renamed<&>").is_some());
+    let renamed = runtime.block_on(request(
+        wing,
+        include_str!("../../../graphql/queries/configs.graphql"),
+        json!({}),
+    ));
+    let renamed = renamed["configs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == copy_id)
+        .unwrap();
+    assert_eq!(renamed["name"], "Renamed<&>");
+    assert_eq!(renamed["global"], original["global"]);
+
+    click(&open_menu(page, "Renamed<&>"), "Delete");
+    wait_for(|| window.visible_dialog().is_some());
+    let dialog = window
+        .visible_dialog()
+        .unwrap()
+        .downcast::<adw::AlertDialog>()
+        .unwrap();
+    assert!(dialog.body().contains("Renamed<&>"));
+    capture(window, "config-delete-confirmation");
+    click(&dialog, "Cancel");
+    wait_for(|| window.visible_dialog().is_none());
+    let remaining = runtime.block_on(request(wing, "{configs {id}}", json!({})));
+    assert!(
+        remaining["configs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["id"] == copy_id),
+        "cancel must not delete the config"
+    );
+    click(&open_menu(page, "Renamed<&>"), "Delete");
+    wait_for(|| window.visible_dialog().is_some());
+    click(&window.visible_dialog().unwrap(), "Delete");
+    wait_for(|| find_widget::<adw::ActionRow>(page, &|row| row.title() == "Renamed<&>").is_none());
+    let remaining = runtime.block_on(request(wing, "{configs {id selected}}", json!({})));
+    assert!(
+        !remaining["configs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["id"] == copy_id)
+    );
+    assert!(
+        remaining["configs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["id"] == id)
+    );
+    assert_eq!(
+        remaining["configs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["selected"] == true)
+            .count(),
+        1
+    );
 }

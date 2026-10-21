@@ -1,0 +1,3 @@
+mutation RemoveConfig($id: ID!) {
+  removeConfig(id: $id)
+}

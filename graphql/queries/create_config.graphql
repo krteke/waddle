@@ -1,0 +1,3 @@
+mutation CreateConfig($name: String!, $global: globalInput!) {
+  createConfig(name: $name, global: $global) { id }
+}

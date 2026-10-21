@@ -1,4 +1,5 @@
 mod details;
+mod dialogs;
 
 use adw::prelude::*;
 use gtk::glib;
@@ -21,21 +22,35 @@ pub struct Configs {
     details: Details,
     detail_id: Option<String>,
     error_dialog: adw::AlertDialog,
+    action_dialog: Option<adw::AlertDialog>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ConfigMsg {
     Refresh,
     Select(String),
     Details(String),
     ShowError,
     Retranslate,
+    ShowRename(String),
+    Rename(String, String),
+    Duplicate(String),
+    ShowDelete(String),
+    Delete(String),
+}
+
+enum Operation {
+    Refresh,
+    Select(String),
+    Rename(String, String),
+    Duplicate(Box<Config>),
+    Delete(String),
 }
 
 #[derive(Debug)]
 pub struct ConfigUpdate {
     records: Result<Vec<Config>, ApiError>,
-    selection_error: Option<ApiError>,
+    mutation_error: Option<ApiError>,
 }
 
 #[relm4::component(pub)]
@@ -132,6 +147,7 @@ impl Component for Configs {
             details: Details::new(),
             detail_id: None,
             error_dialog,
+            action_dialog: None,
         };
 
         let list = &model.list;
@@ -144,7 +160,18 @@ impl Component for Configs {
     }
 
     fn update(&mut self, message: ConfigMsg, sender: ComponentSender<Self>, root: &Self::Root) {
-        let selection = match message {
+        let operation = match message {
+            ConfigMsg::ShowRename(ref id) | ConfigMsg::ShowDelete(ref id) => {
+                let config = self.records.iter().find(|config| &config.id == id).unwrap();
+                let dialog = if matches!(message, ConfigMsg::ShowRename(_)) {
+                    dialogs::rename(config, sender.input_sender().clone())
+                } else {
+                    dialogs::delete(config, sender.input_sender().clone())
+                };
+                dialog.present(Some(root));
+                self.action_dialog = Some(dialog);
+                return;
+            }
             ConfigMsg::Details(id) => {
                 let config = self.records.iter().find(|config| config.id == id).unwrap();
                 self.details.refresh(config);
@@ -160,8 +187,17 @@ impl Component for Configs {
                 self.render(&sender, root);
                 return;
             }
-            ConfigMsg::Refresh => None,
-            ConfigMsg::Select(id) => Some(id),
+            ConfigMsg::Refresh => Operation::Refresh,
+            ConfigMsg::Select(id) => Operation::Select(id),
+            ConfigMsg::Rename(id, name) => Operation::Rename(id, name),
+            ConfigMsg::Delete(id) => Operation::Delete(id),
+            ConfigMsg::Duplicate(id) => Operation::Duplicate(Box::new(
+                self.records
+                    .iter()
+                    .find(|config| config.id == id)
+                    .unwrap()
+                    .clone(),
+            )),
         };
 
         if self.busy {
@@ -174,14 +210,18 @@ impl Component for Configs {
         let api = self.api.clone();
 
         sender.oneshot_command(async move {
-            let selection_error = match selection {
-                Some(id) => api.select_config(id).await.err(),
-                None => None,
-            };
+            let mutation_error = match operation {
+                Operation::Refresh => Ok(()),
+                Operation::Select(id) => api.select_config(id).await,
+                Operation::Rename(id, name) => api.rename_config(id, name).await,
+                Operation::Delete(id) => api.remove_config(id).await,
+                Operation::Duplicate(config) => api.duplicate_config(*config).await,
+            }
+            .err();
 
             ConfigUpdate {
                 records: api.configs().await,
-                selection_error,
+                mutation_error,
             }
         });
     }
@@ -193,11 +233,11 @@ impl Component for Configs {
         root: &Self::Root,
     ) {
         self.busy = false;
-        let selection_failed = result.selection_error.is_some();
-        let unauthorized = matches!(&result.selection_error, Some(ApiError::Unauthorized))
+        let mutation_failed = result.mutation_error.is_some();
+        let unauthorized = matches!(&result.mutation_error, Some(ApiError::Unauthorized))
             || matches!(&result.records, Err(ApiError::Unauthorized));
 
-        self.error = result.selection_error;
+        self.error = result.mutation_error;
 
         match result.records {
             Ok(records) => self.records = records,
@@ -218,12 +258,18 @@ impl Component for Configs {
 
         if unauthorized {
             sender.output(()).unwrap();
-        } else if selection_failed {
+        } else if mutation_failed {
             self.show_error(root);
         }
     }
 
     fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
+        if let Some(dialog) = &self.action_dialog
+            && dialog.parent().is_some()
+        {
+            dialog.close();
+        }
+
         if self.error_dialog.parent().is_some() {
             self.error_dialog.close();
         }
@@ -231,7 +277,7 @@ impl Component for Configs {
 }
 
 impl Configs {
-    fn render(&self, sender: &ComponentSender<Self>, root: &adw::NavigationView) {
+    fn render(&mut self, sender: &ComponentSender<Self>, root: &adw::NavigationView) {
         self.list.remove_all();
 
         let mut group = None;
@@ -291,19 +337,33 @@ impl Configs {
 
             actions.append(&details);
 
-            ["config.rename", "config.duplicate", "config.delete"]
-                .into_iter()
-                .for_each(|key| {
-                    let button = gtk::Button::with_label(t!(key).as_ref());
-                    button.add_css_class("flat");
+            [
+                ("config.rename", ConfigMsg::ShowRename(config.id.clone())),
+                ("config.duplicate", ConfigMsg::Duplicate(config.id.clone())),
+                ("config.delete", ConfigMsg::ShowDelete(config.id.clone())),
+            ]
+            .into_iter()
+            .for_each(|(key, message)| {
+                let button = gtk::Button::with_label(t!(key).as_ref());
+                button.add_css_class("flat");
 
-                    if key == "config.delete" {
-                        button.set_sensitive(!config.selected);
-                        button.add_css_class("destructive-action");
+                if key == "config.delete" {
+                    button.set_sensitive(!config.selected);
+                    button.add_css_class("destructive-action");
+                }
+
+                let input = sender.input_sender().clone();
+                button.connect_clicked(glib::clone!(
+                    #[weak]
+                    popover,
+                    move |_| {
+                        popover.popdown();
+                        input.emit(message.clone());
                     }
+                ));
 
-                    actions.append(&button);
-                });
+                actions.append(&button);
+            });
 
             popover.set_child(Some(&actions));
 
@@ -324,7 +384,8 @@ impl Configs {
             if let Some(config) = self.records.iter().find(|config| &config.id == id) {
                 self.details.refresh(config);
             } else {
-                root.pop();
+                root.pop_to_tag("config-list");
+                self.detail_id = None;
             }
         }
     }
