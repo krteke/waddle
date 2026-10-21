@@ -44,6 +44,7 @@ pub struct Workspace {
     pub view: adw::OverlaySplitView,
     pub connection_content: gtk::Box,
     pub overview: gtk::Stack,
+    pub configurations: gtk::Stack,
     server_name: gtk::Label,
     server: gtk::MenuButton,
     server_menu: gtk::Popover,
@@ -109,6 +110,7 @@ impl Workspace {
         navigation.add_css_class("navigation-sidebar");
 
         let overview = gtk::Stack::new();
+        let configurations = gtk::Stack::new();
         let mut pages = Vec::new();
 
         PAGES.into_iter().for_each(|(name, _, icon, _)| {
@@ -127,6 +129,9 @@ impl Workspace {
             if name == "overview" {
                 overview.add_named(&page, Some("placeholder"));
                 stack.add_named(&overview, Some(name));
+            } else if name == "configurations" {
+                configurations.add_named(&page, Some("placeholder"));
+                stack.add_named(&configurations, Some(name));
             } else {
                 stack.add_named(&page, Some(name));
             }
@@ -252,6 +257,7 @@ impl Workspace {
             view,
             connection_content,
             overview,
+            configurations,
             server_name,
             server,
             server_menu: gtk::Popover::new(),

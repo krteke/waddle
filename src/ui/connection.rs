@@ -3,6 +3,7 @@ use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
 
 use super::{
+    config::{ConfigMsg, Configs},
     login_dialog::LoginDialog,
     overview::Overview,
     proxy::{Proxy, ProxyMsg},
@@ -35,6 +36,8 @@ pub struct Connection {
     overview_stack: gtk::Stack,
     proxy: Option<Controller<Proxy>>,
     proxy_content: gtk::Box,
+    configs: Option<Controller<Configs>>,
+    config_stack: gtk::Stack,
 }
 
 #[derive(Debug)]
@@ -55,7 +58,7 @@ pub enum ConnectionOutput {
 
 #[relm4::component(pub)]
 impl Component for Connection {
-    type Init = (adw::ApplicationWindow, Server, gtk::Stack);
+    type Init = (adw::ApplicationWindow, Server, gtk::Stack, gtk::Stack);
     type Input = ConnectionMsg;
     type Output = ConnectionOutput;
     type CommandOutput = AuthResult;
@@ -126,7 +129,7 @@ impl Component for Connection {
     }
 
     fn init(
-        (parent, server, overview_stack): Self::Init,
+        (parent, server, overview_stack, config_stack): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -152,6 +155,8 @@ impl Component for Connection {
             overview_stack,
             proxy: None,
             proxy_content: gtk::Box::new(gtk::Orientation::Vertical, 0),
+            configs: None,
+            config_stack,
         };
 
         let proxy_content = &model.proxy_content;
@@ -167,9 +172,16 @@ impl Component for Connection {
         if matches!(
             message,
             ConnectionMsg::Retry(_) | ConnectionMsg::Submit | ConnectionMsg::SignOut
-        ) && let Some(proxy) = self.proxy.take()
-        {
-            self.proxy_content.remove(proxy.widget());
+        ) {
+            if let Some(proxy) = self.proxy.take() {
+                self.proxy_content.remove(proxy.widget());
+            }
+
+            if let Some(configs) = self.configs.take() {
+                self.config_stack.remove(configs.widget());
+            }
+
+            self.config_stack.set_visible_child_name("placeholder");
         }
 
         match message {
@@ -202,6 +214,10 @@ impl Component for Connection {
                 sender.oneshot_command(async move { auth::sign_out(&server_name).await });
             }
             ConnectionMsg::Retranslate => {
+                if let Some(configs) = &self.configs {
+                    configs.emit(ConfigMsg::Retranslate);
+                }
+
                 if let Some(proxy) = &self.proxy {
                     proxy.emit(ProxyMsg::Retranslate);
                 }
@@ -249,11 +265,22 @@ impl Component for Connection {
                     .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
                 self.proxy_content.append(proxy.widget());
                 self.proxy = Some(proxy);
+
+                let configs = Configs::builder()
+                    .launch(api.clone())
+                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+
+                self.config_stack.add_child(configs.widget());
+                self.config_stack.set_visible_child(configs.widget());
+
+                self.configs = Some(configs);
                 self.phase = Phase::Connected { api, username };
                 self.error = warning;
+
                 if self.error.is_none() {
                     sender.output(ConnectionOutput::SignedIn).unwrap();
                 }
+
                 self.login.close();
             }
             AuthResult::Failed(error) => {
@@ -285,5 +312,9 @@ impl Component for Connection {
     fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
         self.login.close();
         self.overview_stack.remove(&self.overview.content);
+        if let Some(configs) = &self.configs {
+            self.config_stack.remove(configs.widget());
+        }
+        self.config_stack.set_visible_child_name("placeholder");
     }
 }

@@ -1,0 +1,3 @@
+mutation SelectConfig($id: ID!) {
+  selectConfig(id: $id)
+}

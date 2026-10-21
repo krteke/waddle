@@ -5,6 +5,7 @@ use rust_i18n::t;
 use crate::{
     api::Api,
     error::{ApiError, Message, ProxyError},
+    ui::error_dialog::DialogExt,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -83,9 +84,9 @@ impl Component for Proxy {
                     #[watch]
                     set_visible: model.error.is_some(),
                     #[watch]
-                    set_tooltip_text: Some(t!("proxy.error_details").as_ref()),
+                    set_tooltip_text: Some(t!("error.details").as_ref()),
                     #[watch]
-                    update_property: &[gtk::accessible::Property::Label(t!("proxy.error_details").as_ref())],
+                    update_property: &[gtk::accessible::Property::Label(t!("error.details").as_ref())],
                     connect_clicked => ProxyMsg::ShowError,
                 },
                 gtk::Button {
@@ -110,7 +111,7 @@ impl Component for Proxy {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let error_dialog = adw::AlertDialog::new(None, None);
-        error_dialog.add_response("close", t!("proxy.close").as_ref());
+        error_dialog.add_response("close", t!("dialog.close").as_ref());
         error_dialog.set_close_response("close");
         error_dialog.set_default_response(Some("close"));
         let model = Self {
@@ -210,42 +211,9 @@ impl Proxy {
     fn show_error(&self, parent: &gtk::Box) {
         let Some(error) = &self.error else { return };
         let (ProxyError::Read(source) | ProxyError::Change(source)) = error;
-        let details = match source {
-            ApiError::Graphql(errors) => errors
-                .iter()
-                .map(|error| error.message.as_str())
-                .collect::<Vec<_>>()
-                .join("\n\n"),
-            error => {
-                let mut details = error.to_string();
-                let mut source = std::error::Error::source(error);
-                while let Some(error) = source {
-                    details.push('\n');
-                    details.push_str(&error.to_string());
-                    source = error.source();
-                }
-                details
-            }
-        };
-        let label = gtk::Label::builder()
-            .label(details)
-            .use_markup(false)
-            .selectable(true)
-            .wrap(true)
-            .wrap_mode(gtk::pango::WrapMode::WordChar)
-            .xalign(0.0)
-            .build();
-        let scroll = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .propagate_natural_height(true)
-            .max_content_height(300)
-            .child(&label)
-            .build();
-        self.error_dialog.set_heading(Some(&error.user_message()));
+
         self.error_dialog
-            .set_response_label("close", t!("proxy.close").as_ref());
-        self.error_dialog.set_extra_child(Some(&scroll));
-        self.error_dialog.present(Some(parent));
+            .show_error(&error.user_message(), source, parent);
     }
 
     fn status_text(&self) -> String {

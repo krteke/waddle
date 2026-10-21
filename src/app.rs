@@ -293,7 +293,12 @@ impl App {
         let server = self.settings.servers()[index].clone();
         let name = server.name.clone();
         let connection = Connection::builder()
-            .launch((root.clone(), server, self.workspace.overview.clone()))
+            .launch((
+                root.clone(),
+                server,
+                self.workspace.overview.clone(),
+                self.workspace.configurations.clone(),
+            ))
             .forward(sender.input_sender(), move |event| {
                 AppMsg::Connection(name.clone(), event)
             });

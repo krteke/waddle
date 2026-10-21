@@ -8,6 +8,7 @@ use crate::{
 use gtk::glib;
 use std::time::{Duration, Instant};
 
+mod config;
 mod proxy;
 
 fn find_widget<W: IsA<gtk::Widget>>(
@@ -462,6 +463,7 @@ fn server_management_and_authentication_lifecycle() {
     assert_eq!(menu.tooltip_text().as_deref(), Some("语言"));
     language(window, "en");
     wait_for(|| connected(window, "Home"));
+    config::selection_and_details(&runtime, window, &home);
     let selector = find_widget::<gtk::MenuButton>(window, &|button| {
         button.tooltip_text().as_deref() == Some("Select Server")
     })
@@ -597,6 +599,26 @@ fn server_management_and_authentication_lifecycle() {
         .set_active(true);
     click(&login, "Sign In");
     wait_for(|| connected(window, "Office"));
+    find_widget::<gtk::ListBoxRow>(window, &|row| {
+        find_widget::<gtk::Label>(row, &|l| l.text() == "Config").is_some()
+    })
+    .unwrap()
+    .activate();
+    wait_for(|| {
+        find_widget::<adw::StatusPage>(window, &|p| {
+            p.is_mapped() && p.title() == "No Configurations"
+        })
+        .is_some()
+    });
+    assert!(
+        find_widget::<adw::ActionRow>(window, &|r| r.title() == "global (copy)").is_none(),
+        "switching servers must discard the previous config list"
+    );
+    find_widget::<gtk::ListBoxRow>(window, &|row| {
+        find_widget::<gtk::Label>(row, &|l| l.text() == "Overview").is_some()
+    })
+    .unwrap()
+    .activate();
     click_icon(window, "network-server-symbolic");
     let row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Office").unwrap();
     click_icon(&row, "non-starred-symbolic");
@@ -630,6 +652,13 @@ fn server_management_and_authentication_lifecycle() {
     .unwrap();
     home_button.emit_clicked();
     wait_for(|| connected(window, "Home"));
+    wait_for(|| {
+        find_widget::<adw::ActionRow>(window, &|row| {
+            row.title() == "global (copy)"
+                && find_widget::<gtk::CheckButton>(row, &|c| c.is_active()).is_some()
+        })
+        .is_some()
+    });
     assert!(!popover.is_visible());
     assert_eq!(
         ServerSettings::load(settings.clone()).default_server_index(),
@@ -654,6 +683,12 @@ fn server_management_and_authentication_lifecycle() {
     wait_for(|| window.visible_dialog().is_some());
     assert!(!connected(window, "Office"));
     let login = window.visible_dialog().unwrap();
+    assert!(
+        find_widget::<adw::NavigationPage>(window, &|page| page.tag().as_deref()
+            == Some("config-list"))
+        .is_none(),
+        "signing out must remove authenticated config pages"
+    );
     assert_eq!(login.title(), "Sign In");
     assert!(
         runtime

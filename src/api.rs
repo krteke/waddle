@@ -6,6 +6,8 @@ use url::Url;
 
 use crate::{credentials::Credentials, error::ApiError};
 
+pub mod config;
+
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "schema/schema.graphql",
