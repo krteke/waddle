@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 mod config;
 mod node_actions;
+mod node_share;
 mod nodes;
 mod proxy;
 
@@ -199,6 +200,7 @@ fn server_management_and_authentication_lifecycle() {
     let settings = settings::tests::settings();
     settings.set_string("language", "en").unwrap();
     proxy::proxy_control(&runtime);
+    node_share::shares_original_link(&runtime);
     node_actions::latency_and_deletion(&runtime);
     long_server_menu_stays_scrollable();
     let controller = App::builder()

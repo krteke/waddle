@@ -1,5 +1,9 @@
 use super::*;
 
+pub use import_nodes::{ImportArgument, ImportNodesImportNodes as NodeImportResult};
+pub use nodes::NodesNodesEdges as Node;
+pub use test_node_latencies::TestNodeLatenciesTestNodeLatencies as NodeLatency;
+
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "schema/schema.graphql",
@@ -16,9 +20,6 @@ struct Nodes;
 )]
 struct ImportNodes;
 
-pub use import_nodes::{ImportArgument, ImportNodesImportNodes as NodeImportResult};
-pub use nodes::NodesNodesEdges as Node;
-
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "schema/schema.graphql",
@@ -34,8 +35,6 @@ struct TestNodeLatencies;
     response_derives = "Debug"
 )]
 struct RemoveNodes;
-
-pub use test_node_latencies::TestNodeLatenciesTestNodeLatencies as NodeLatency;
 
 impl Api {
     pub async fn nodes(&self) -> Result<Vec<Node>, ApiError> {

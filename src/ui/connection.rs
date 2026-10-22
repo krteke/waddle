@@ -206,9 +206,7 @@ impl Component for Connection {
                 self.error = None;
                 let api = self.api.as_ref().unwrap().clone();
                 let server_name = self.server_name.clone();
-                sender.oneshot_command(async move {
-                    auth::prepare(api, &server_name, logged_out).await
-                });
+                sender.oneshot_command(async move { api.prepare(&server_name, logged_out).await });
             }
             ConnectionMsg::Submit => {
                 let credentials = self.login.credentials();
@@ -219,7 +217,7 @@ impl Component for Connection {
                 let api = self.api.as_ref().unwrap().clone();
                 let server_name = self.server_name.clone();
                 sender.oneshot_command(async move {
-                    auth::authenticate(api, &server_name, credentials, create_admin, save_password)
+                    auth::authenticate(&api, &server_name, credentials, create_admin, save_password)
                         .await
                 });
             }

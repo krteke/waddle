@@ -1,5 +1,5 @@
 query Nodes {
   nodes {
-    edges { id name protocol tag }
+    edges { id name protocol tag link }
   }
 }

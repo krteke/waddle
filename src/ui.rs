@@ -5,5 +5,6 @@ pub mod login_dialog;
 pub mod nodes;
 pub mod overview;
 pub mod proxy;
+mod qr_code;
 pub mod server;
 pub mod workspace;

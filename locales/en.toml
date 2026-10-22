@@ -204,6 +204,11 @@ list_item = "%{field} · %{index}"
 "tls_fragment_interval" = "Delay between TLS fragments in milliseconds, for example 10-20."
 
 [nodes]
+share_title = "QR Code and Link"
+qr_code = "Node QR code"
+qr_error = "Could not generate a QR code. You can still copy the link below."
+copy_link = "Copy Link"
+copied = "Copied"
 untested = "Not tested"
 testing = "Testing…"
 latency = "%{ms} ms"

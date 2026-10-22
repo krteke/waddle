@@ -37,7 +37,7 @@ pub(super) fn add_and_list(
     });
     let row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Hong Kong").unwrap();
     assert!(
-        !find_widget::<gtk::Button>(&row, &|button| {
+        find_widget::<gtk::Button>(&row, &|button| {
             button.tooltip_text().as_deref() == Some("Show QR Code and Link")
         })
         .unwrap()

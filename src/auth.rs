@@ -23,68 +23,70 @@ pub enum AuthResult {
     Failed(ConnectionError),
 }
 
-pub async fn prepare(api: Api, server: &str, logged_out: bool) -> AuthResult {
-    if let Err(error) = api.health_check().await {
-        return AuthResult::Failed(ConnectionError::HealthCheck(error));
-    }
-
-    match api.has_admin().await {
-        Ok(false) => {
-            return AuthResult::Prompt {
-                create_admin: true,
-                credentials: Credentials::default(),
-                save_password: false,
-                error: None,
-            };
+impl Api {
+    pub async fn prepare(&self, server: &str, logged_out: bool) -> AuthResult {
+        if let Err(error) = self.health_check().await {
+            return AuthResult::Failed(ConnectionError::HealthCheck(error));
         }
-        Err(error) => return AuthResult::Failed(ConnectionError::Check(error)),
-        _ => {}
-    }
 
-    let saved = match credentials::load(server).await {
-        Ok(saved) => saved,
-        Err(error) => return login_prompt(None, Some(ConnectionError::ReadCredentials(error))),
-    };
-
-    if logged_out {
-        return login_prompt(saved, None);
-    }
-
-    let Some(saved) = saved else {
-        return login_prompt(None, None);
-    };
-
-    if let Some(jwt) = saved.jwt.as_deref() {
-        let result = async {
-            let session = api.with_token(jwt)?;
-            let username = session.current_user().await?;
-            Ok::<_, ApiError>((session, username))
-        }
-        .await;
-        match result {
-            Ok((api, username)) => {
-                return AuthResult::Connected {
-                    api,
-                    username,
-                    warning: None,
+        match self.has_admin().await {
+            Ok(false) => {
+                return AuthResult::Prompt {
+                    create_admin: true,
+                    credentials: Credentials::default(),
+                    save_password: false,
+                    error: None,
                 };
             }
-            Err(error @ (ApiError::Unauthorized | ApiError::InvalidToken(_))) => {
-                tracing::info!(server, %error, "Saved session is no longer valid");
-            }
-            Err(error) => return AuthResult::Failed(ConnectionError::Session(error)),
+            Err(error) => return AuthResult::Failed(ConnectionError::Check(error)),
+            _ => {}
         }
-    }
 
-    if saved.password.is_some() {
-        authenticate(api, server, saved, false, true).await
-    } else {
-        login_prompt(Some(saved), None)
+        let saved = match credentials::load(server).await {
+            Ok(saved) => saved,
+            Err(error) => return login_prompt(None, Some(ConnectionError::ReadCredentials(error))),
+        };
+
+        if logged_out {
+            return login_prompt(saved, None);
+        }
+
+        let Some(saved) = saved else {
+            return login_prompt(None, None);
+        };
+
+        if let Some(jwt) = saved.jwt.as_deref() {
+            let result = async {
+                let session = self.with_token(jwt)?;
+                let username = session.current_user().await?;
+                Ok::<_, ApiError>((session, username))
+            }
+            .await;
+            match result {
+                Ok((api, username)) => {
+                    return AuthResult::Connected {
+                        api,
+                        username,
+                        warning: None,
+                    };
+                }
+                Err(error @ (ApiError::Unauthorized | ApiError::InvalidToken(_))) => {
+                    tracing::info!(server, %error, "Saved session is no longer valid");
+                }
+                Err(error) => return AuthResult::Failed(ConnectionError::Session(error)),
+            }
+        }
+
+        if saved.password.is_some() {
+            authenticate(self, server, saved, false, true).await
+        } else {
+            login_prompt(Some(saved), None)
+        }
     }
 }
 
 pub async fn authenticate(
-    api: Api,
+    api: &Api,
     server: &str,
     mut credentials: Credentials,
     create_admin: bool,

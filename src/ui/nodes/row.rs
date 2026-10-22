@@ -68,13 +68,16 @@ impl NodeRow {
         let share = gtk::Button::builder()
             .icon_name("insert-link-symbolic")
             .css_classes(["flat"])
-            .sensitive(false)
             .build();
 
         let delete = gtk::Button::builder()
             .icon_name("user-trash-symbolic")
             .css_classes(["flat", "error"])
             .build();
+
+        let id = node.id.clone();
+        let share_input = input.clone();
+        share.connect_clicked(move |_| share_input.emit(NodeMsg::Share(id.clone())));
 
         let id = node.id.clone();
         delete.connect_clicked(move |_| input.emit(NodeMsg::ConfirmDelete(id.clone())));

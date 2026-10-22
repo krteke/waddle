@@ -1,5 +1,6 @@
 mod add;
 mod row;
+mod share;
 
 use adw::prelude::*;
 use relm4::{Sender, adw, gtk, prelude::*};
@@ -25,12 +26,14 @@ pub struct Nodes {
     error_dialog: adw::AlertDialog,
     add: Option<Controller<AddNodes>>,
     delete_dialog: Option<adw::AlertDialog>,
+    share_dialog: Option<adw::Dialog>,
 }
 
 #[derive(Debug)]
 pub enum NodeMsg {
     Refresh,
     Test,
+    Share(String),
     ConfirmDelete(String),
     Delete(String),
     Add,
@@ -162,6 +165,7 @@ impl Component for Nodes {
             error_dialog,
             add: None,
             delete_dialog: None,
+            share_dialog: None,
         };
 
         let group = &model.group;
@@ -194,6 +198,12 @@ impl Component for Nodes {
                 sender.oneshot_command(async move {
                     NodeCommand::Tested(api.test_node_latencies(ids).await)
                 });
+            }
+            NodeMsg::Share(id) => {
+                let row = self.rows.iter().find(|row| row.node.id == id).unwrap();
+                let dialog = row.node.dialog();
+                dialog.present(Some(root));
+                self.share_dialog = Some(dialog);
             }
             NodeMsg::ConfirmDelete(id) => {
                 let row = self.rows.iter().find(|row| row.node.id == id).unwrap();
@@ -327,6 +337,9 @@ impl Component for Nodes {
     fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
         if self.error_dialog.parent().is_some() {
             self.error_dialog.force_close();
+        }
+        if let Some(dialog) = &self.share_dialog {
+            dialog.force_close();
         }
         if let Some(dialog) = &self.delete_dialog {
             dialog.force_close();

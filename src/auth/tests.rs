@@ -80,7 +80,7 @@ impl Drop for HealthServer {
 fn unhealthy_server_stops_before_administrator_check() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let server = HealthServer::start("200 OK", r#"{"data":{"healthCheck":0}}"#).await;
-        let result = prepare(server.api.clone(), "Unhealthy", false).await;
+        let result = server.api.prepare("Unhealthy", false).await;
         assert!(matches!(result, AuthResult::Failed(_)), "{result:?}");
         assert_eq!(*server.requests.lock().unwrap(), ["HealthCheck"]);
     });
@@ -91,7 +91,7 @@ fn health_graphql_error_stops_before_administrator_check() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let server =
             HealthServer::start("200 OK", r#"{"errors":[{"message":"health unavailable"}]}"#).await;
-        let result = prepare(server.api.clone(), "GraphQL failure", false).await;
+        let result = server.api.prepare("GraphQL failure", false).await;
         assert!(matches!(result, AuthResult::Failed(_)), "{result:?}");
         assert_eq!(*server.requests.lock().unwrap(), ["HealthCheck"]);
     });
@@ -101,7 +101,7 @@ fn health_graphql_error_stops_before_administrator_check() {
 fn health_http_error_stops_before_administrator_check() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let server = HealthServer::start("503 Service Unavailable", "").await;
-        let result = prepare(server.api.clone(), "HTTP failure", false).await;
+        let result = server.api.prepare("HTTP failure", false).await;
         assert!(matches!(result, AuthResult::Failed(_)), "{result:?}");
         assert_eq!(*server.requests.lock().unwrap(), ["HealthCheck"]);
     });
@@ -111,7 +111,7 @@ fn health_http_error_stops_before_administrator_check() {
 fn healthy_server_checks_administrator_after_health_check() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let server = HealthServer::start("200 OK", r#"{"data":{"healthCheck":1}}"#).await;
-        let result = prepare(server.api.clone(), "Healthy", false).await;
+        let result = server.api.prepare("Healthy", false).await;
         assert!(
             matches!(
                 result,
@@ -152,7 +152,7 @@ fn saved_jwt_takes_precedence_over_a_wrong_saved_password() {
         .save("jwt-first")
         .await
         .unwrap();
-        let result = prepare(api, "jwt-first", false).await;
+        let result = api.prepare("jwt-first", false).await;
         assert!(
             matches!(result, AuthResult::Connected { warning: None, .. }),
             "{result:?}"
@@ -182,7 +182,7 @@ fn saved_jwt_restores_session_without_a_saved_password() {
         .save("jwt-only")
         .await
         .unwrap();
-        let result = prepare(api, "jwt-only", false).await;
+        let result = api.prepare("jwt-only", false).await;
         let AuthResult::Connected {
             api, warning: None, ..
         } = result
@@ -215,7 +215,7 @@ fn rejected_jwt_automatically_renews_using_saved_password() {
         .save("renew-jwt")
         .await
         .unwrap();
-        let result = prepare(api.clone(), "renew-jwt", false).await;
+        let result = api.prepare("renew-jwt", false).await;
         assert!(
             matches!(result, AuthResult::Connected { warning: None, .. }),
             "{result:?}"
@@ -246,7 +246,7 @@ fn rejected_jwt_without_saved_password_prompts_for_credentials() {
         .save("prompt-jwt")
         .await
         .unwrap();
-        let result = prepare(api, "prompt-jwt", false).await;
+        let result = api.prepare("prompt-jwt", false).await;
         let AuthResult::Prompt {
             credentials,
             save_password: false,
@@ -311,7 +311,7 @@ fn manual_sign_out_clears_only_the_target_jwt_and_prefills_saved_password() {
                 .as_deref(),
             Some(jwt.as_str())
         );
-        let result = prepare(api, "sign-out", true).await;
+        let result = api.prepare("sign-out", true).await;
         assert!(
             matches!(result, AuthResult::Prompt { error: None, .. }),
             "{result:?}"
@@ -332,7 +332,7 @@ fn manual_sign_out_flag_prevents_using_a_remaining_valid_jwt() {
         .save("manual-only")
         .await
         .unwrap();
-        let result = prepare(api, "manual-only", true).await;
+        let result = api.prepare("manual-only", true).await;
         let AuthResult::Prompt {
             credentials,
             error: None,

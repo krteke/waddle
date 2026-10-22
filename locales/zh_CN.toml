@@ -204,6 +204,11 @@ list_item = "%{field} · %{index}"
 "tls_fragment_interval" = "TLS 片段之间的延迟范围，单位为毫秒，例如 10-20。"
 
 [nodes]
+share_title = "二维码和链接"
+qr_code = "节点二维码"
+qr_error = "无法生成二维码，仍可复制下方的完整链接。"
+copy_link = "复制链接"
+copied = "已复制"
 untested = "未测速"
 testing = "正在测速…"
 latency = "%{ms} ms"
