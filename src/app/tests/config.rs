@@ -1,6 +1,8 @@
 use super::*;
 use serde_json::{Value, json};
 
+mod editor;
+
 async fn request(wing: &Wing, query: &str, variables: Value) -> Value {
     let saved = credentials::load("Home").await.unwrap().unwrap();
     let result: Value = reqwest::Client::new()
@@ -67,6 +69,9 @@ pub(super) fn selection_and_details(
     capture(window, "config-list");
     let copy = find_widget::<adw::ActionRow>(&page, &|row| row.title() == "global (copy)").unwrap();
     click_icon(&copy, "document-edit-symbolic");
+    wait_for(|| window.visible_dialog().is_some());
+    click(&window.visible_dialog().unwrap(), "Cancel");
+    wait_for(|| window.visible_dialog().is_none());
     let copy_menu = find_widget::<gtk::MenuButton>(&copy, &|_| true).unwrap();
     copy_menu.popup();
     let copy_popover = copy_menu.popover().unwrap();
@@ -159,6 +164,7 @@ pub(super) fn selection_and_details(
         .is_some()
     );
     mutations(runtime, window, wing, &page);
+    editor::create_and_edit(runtime, window, wing, &page);
     find_widget::<gtk::ListBoxRow>(window, &|row| {
         find_widget::<gtk::Label>(row, &|l| l.text() == "Overview").is_some()
     })

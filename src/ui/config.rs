@@ -1,5 +1,10 @@
+mod choice_list;
 mod details;
 mod dialogs;
+mod editor;
+mod field_note;
+mod fields;
+mod input_list;
 
 use adw::prelude::*;
 use gtk::glib;
@@ -12,6 +17,7 @@ use crate::{
     ui::error_dialog::DialogExt,
 };
 use details::Details;
+use editor::{Editor, EditorMsg, EditorOutput};
 
 pub struct Configs {
     api: Api,
@@ -23,6 +29,7 @@ pub struct Configs {
     detail_id: Option<String>,
     error_dialog: adw::AlertDialog,
     action_dialog: Option<adw::AlertDialog>,
+    editor: Option<Controller<Editor>>,
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +44,9 @@ pub enum ConfigMsg {
     Duplicate(String),
     ShowDelete(String),
     Delete(String),
+    New,
+    Edit(String),
+    Editor(EditorOutput),
 }
 
 enum Operation {
@@ -102,6 +112,15 @@ impl Component for Configs {
                                         set_visible: model.busy,
                                     },
                                     gtk::Button {
+                                        set_icon_name: "list-add-symbolic",
+                                        add_css_class: "flat",
+                                        #[watch]
+                                        set_tooltip_text: Some(t!("config.new_title").as_ref()),
+                                        #[watch]
+                                        set_sensitive: !model.busy,
+                                        connect_clicked => ConfigMsg::New,
+                                    },
+                                    gtk::Button {
                                         set_icon_name: "view-refresh-symbolic",
                                         add_css_class: "flat",
                                         #[watch]
@@ -148,6 +167,7 @@ impl Component for Configs {
             detail_id: None,
             error_dialog,
             action_dialog: None,
+            editor: None,
         };
 
         let list = &model.list;
@@ -161,30 +181,80 @@ impl Component for Configs {
 
     fn update(&mut self, message: ConfigMsg, sender: ComponentSender<Self>, root: &Self::Root) {
         let operation = match message {
+            ConfigMsg::New | ConfigMsg::Edit(_) => {
+                let config = if let ConfigMsg::Edit(id) = message {
+                    Some(
+                        self.records
+                            .iter()
+                            .find(|config| config.id == id)
+                            .unwrap()
+                            .clone(),
+                    )
+                } else {
+                    None
+                };
+
+                let editor = Editor::builder()
+                    .launch((self.api.clone(), config))
+                    .forward(sender.input_sender(), ConfigMsg::Editor);
+
+                editor.widget().present(Some(root));
+                self.editor = Some(editor);
+
+                return;
+            }
+            ConfigMsg::Editor(EditorOutput::Closed) => {
+                self.editor.take();
+
+                return;
+            }
+            ConfigMsg::Editor(EditorOutput::Unauthorized) => {
+                self.editor.take();
+                sender.output(()).unwrap();
+
+                return;
+            }
+            ConfigMsg::Editor(EditorOutput::Saved) => {
+                self.editor.take();
+
+                Operation::Refresh
+            }
             ConfigMsg::ShowRename(ref id) | ConfigMsg::ShowDelete(ref id) => {
                 let config = self.records.iter().find(|config| &config.id == id).unwrap();
+
                 let dialog = if matches!(message, ConfigMsg::ShowRename(_)) {
                     dialogs::rename(config, sender.input_sender().clone())
                 } else {
                     dialogs::delete(config, sender.input_sender().clone())
                 };
+
                 dialog.present(Some(root));
                 self.action_dialog = Some(dialog);
+
                 return;
             }
             ConfigMsg::Details(id) => {
                 let config = self.records.iter().find(|config| config.id == id).unwrap();
+
                 self.details.refresh(config);
                 self.detail_id = Some(id);
+
                 root.push(&self.details.page);
+
                 return;
             }
             ConfigMsg::ShowError => {
                 self.show_error(root);
+
                 return;
             }
             ConfigMsg::Retranslate => {
+                if let Some(editor) = &self.editor {
+                    editor.emit(EditorMsg::Retranslate);
+                }
+
                 self.render(&sender, root);
+
                 return;
             }
             ConfigMsg::Refresh => Operation::Refresh,
@@ -315,6 +385,11 @@ impl Configs {
                 .build();
 
             edit.add_css_class("flat");
+
+            let id = config.id.clone();
+            let input = sender.input_sender().clone();
+
+            edit.connect_clicked(move |_| input.emit(ConfigMsg::Edit(id.clone())));
             row.add_suffix(&edit);
 
             let popover = gtk::Popover::new();

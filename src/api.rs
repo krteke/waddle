@@ -99,7 +99,8 @@ impl Api {
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
             return Err(ApiError::Unauthorized);
         }
-        let response: Response<Q::ResponseData> = response.error_for_status()?.json().await?;
+        // Failed operations may omit required data fields. Read their errors before decoding data.
+        let response: Response<serde_json::Value> = response.error_for_status()?.json().await?;
 
         if let Some(errors) = response.errors
             && !errors.is_empty()
@@ -110,7 +111,9 @@ impl Api {
             return Err(ApiError::Graphql(errors));
         }
 
-        response.data.ok_or(ApiError::MissingData)
+        Ok(serde_json::from_value(
+            response.data.ok_or(ApiError::MissingData)?,
+        )?)
     }
 
     pub async fn health_check(&self) -> Result<(), ApiError> {

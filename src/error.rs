@@ -15,6 +15,8 @@ pub enum ApiError {
     Http(#[from] reqwest::Error),
     #[error("GraphQL request failed: {0:?}")]
     Graphql(Vec<graphql_client::Error>),
+    #[error("Could not decode GraphQL data: {0}")]
+    Decode(#[from] serde_json::Error),
     #[error("GraphQL response contained no data")]
     MissingData,
     #[error("Server returned an invalid authentication token: {0}")]

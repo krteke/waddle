@@ -1,0 +1,3 @@
+mutation UpdateConfig($global: globalInput!, $id: ID!) {
+  updateConfig(id: $id, global: $global) { id }
+}

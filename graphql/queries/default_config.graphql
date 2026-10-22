@@ -1,0 +1,42 @@
+query DefaultConfig {
+  defaultConfig {
+    id
+    name
+    selected
+    global {
+      logLevel
+      tproxyPort
+      tproxyPortProtect
+      soMarkFromDae
+      pprofPort
+      lanInterface
+      wanInterface
+      autoConfigKernelParameter
+      autoConfigFirewallRule
+      disableThp
+      mptcp
+      enableLocalTcpFastRedirect
+      bpfConnStateMapSize
+      dialMode
+      allowInsecure
+      disableWaitingNetwork
+      checkInterval
+      checkTolerance
+      sniffingTimeout
+      autoSniffPunt
+      tcpCheckHttpMethod
+      tcpCheckUrl
+      udpCheckDns
+      tlsImplementation
+      utlsImitate
+      tlsFragment
+      tlsFragmentLength
+      tlsFragmentInterval
+      bootstrapResolver
+      fallbackResolver
+      bandwidthMaxTx
+      bandwidthMaxRx
+      udphopInterval
+    }
+  }
+}

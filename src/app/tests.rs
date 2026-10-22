@@ -115,21 +115,31 @@ fn capture(widget: &impl IsA<gtk::Widget>, name: &str) {
     let Some(directory) = std::env::var_os("WADDLE_TEST_SCREENSHOTS") else {
         return;
     };
-    let painted = std::rc::Rc::new(std::cell::Cell::new(false));
+    let painted = std::rc::Rc::new(std::cell::Cell::new(0));
     let ticked = painted.clone();
     let widget = widget.as_ref();
     widget.add_tick_callback(move |_, _| {
-        ticked.set(true);
-        glib::ControlFlow::Break
+        ticked.set(ticked.get() + 1);
+        if ticked.get() == 2 {
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
     });
-    wait_for(|| painted.get());
-    let render = gtk::Snapshot::new();
-    gtk::WidgetPaintable::new(Some(widget)).snapshot(
-        &render,
-        widget.width() as f64,
-        widget.height() as f64,
-    );
-    let node = render.to_node().unwrap();
+    wait_for(|| painted.get() == 2);
+    let node = std::cell::RefCell::new(None);
+    // A mapped popover can still be waiting for its first render node.
+    wait_for(|| {
+        let render = gtk::Snapshot::new();
+        gtk::WidgetPaintable::new(Some(widget)).snapshot(
+            &render,
+            widget.width() as f64,
+            widget.height() as f64,
+        );
+        *node.borrow_mut() = render.to_node();
+        node.borrow().is_some()
+    });
+    let node = node.into_inner().unwrap();
     let directory = std::path::PathBuf::from(directory);
     std::fs::create_dir_all(&directory).unwrap();
     widget
