@@ -7,6 +7,7 @@ use url::Url;
 use crate::{credentials::Credentials, error::ApiError};
 
 pub mod config;
+pub mod node;
 
 #[derive(GraphQLQuery)]
 #[graphql(

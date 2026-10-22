@@ -5,6 +5,7 @@ use rust_i18n::t;
 use super::{
     config::{ConfigMsg, Configs},
     login_dialog::LoginDialog,
+    nodes::{NodeMsg, Nodes},
     overview::Overview,
     proxy::{Proxy, ProxyMsg},
 };
@@ -38,6 +39,8 @@ pub struct Connection {
     proxy_content: gtk::Box,
     configs: Option<Controller<Configs>>,
     config_stack: gtk::Stack,
+    nodes: Option<Controller<Nodes>>,
+    node_stack: gtk::Stack,
 }
 
 #[derive(Debug)]
@@ -58,7 +61,13 @@ pub enum ConnectionOutput {
 
 #[relm4::component(pub)]
 impl Component for Connection {
-    type Init = (adw::ApplicationWindow, Server, gtk::Stack, gtk::Stack);
+    type Init = (
+        adw::ApplicationWindow,
+        Server,
+        gtk::Stack,
+        gtk::Stack,
+        gtk::Stack,
+    );
     type Input = ConnectionMsg;
     type Output = ConnectionOutput;
     type CommandOutput = AuthResult;
@@ -129,7 +138,7 @@ impl Component for Connection {
     }
 
     fn init(
-        (parent, server, overview_stack, config_stack): Self::Init,
+        (parent, server, overview_stack, config_stack, node_stack): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -157,6 +166,8 @@ impl Component for Connection {
             proxy_content: gtk::Box::new(gtk::Orientation::Vertical, 0),
             configs: None,
             config_stack,
+            nodes: None,
+            node_stack,
         };
 
         let proxy_content = &model.proxy_content;
@@ -182,6 +193,11 @@ impl Component for Connection {
             }
 
             self.config_stack.set_visible_child_name("placeholder");
+            if let Some(nodes) = self.nodes.take() {
+                self.node_stack.remove(nodes.widget());
+            }
+
+            self.node_stack.set_visible_child_name("placeholder");
         }
 
         match message {
@@ -214,6 +230,9 @@ impl Component for Connection {
                 sender.oneshot_command(async move { auth::sign_out(&server_name).await });
             }
             ConnectionMsg::Retranslate => {
+                if let Some(nodes) = &self.nodes {
+                    nodes.emit(NodeMsg::Retranslate);
+                }
                 if let Some(configs) = &self.configs {
                     configs.emit(ConfigMsg::Retranslate);
                 }
@@ -274,6 +293,14 @@ impl Component for Connection {
                 self.config_stack.set_visible_child(configs.widget());
 
                 self.configs = Some(configs);
+                let nodes = Nodes::builder()
+                    .launch(api.clone())
+                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+
+                self.node_stack.add_child(nodes.widget());
+                self.node_stack.set_visible_child(nodes.widget());
+                self.nodes = Some(nodes);
+
                 self.phase = Phase::Connected { api, username };
                 self.error = warning;
 
@@ -316,5 +343,11 @@ impl Component for Connection {
             self.config_stack.remove(configs.widget());
         }
         self.config_stack.set_visible_child_name("placeholder");
+
+        if let Some(nodes) = &self.nodes {
+            self.node_stack.remove(nodes.widget());
+        }
+
+        self.node_stack.set_visible_child_name("placeholder");
     }
 }

@@ -1,0 +1,6 @@
+mutation ImportNodes($args: [ImportArgument!]!) {
+  importNodes(rollbackError: false, args: $args) {
+    error
+    node { id }
+  }
+}
