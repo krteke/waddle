@@ -19,6 +19,24 @@ struct ImportNodes;
 pub use import_nodes::{ImportArgument, ImportNodesImportNodes as NodeImportResult};
 pub use nodes::NodesNodesEdges as Node;
 
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/test_node_latencies.graphql",
+    response_derives = "Debug"
+)]
+struct TestNodeLatencies;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/remove_nodes.graphql",
+    response_derives = "Debug"
+)]
+struct RemoveNodes;
+
+pub use test_node_latencies::TestNodeLatenciesTestNodeLatencies as NodeLatency;
+
 impl Api {
     pub async fn nodes(&self) -> Result<Vec<Node>, ApiError> {
         Ok(self
@@ -36,5 +54,21 @@ impl Api {
             .execute::<ImportNodes>(import_nodes::Variables { args })
             .await?
             .import_nodes)
+    }
+
+    pub async fn test_node_latencies(
+        &self,
+        ids: Vec<String>,
+    ) -> Result<Vec<NodeLatency>, ApiError> {
+        Ok(self
+            .execute::<TestNodeLatencies>(test_node_latencies::Variables { ids: Some(ids) })
+            .await?
+            .test_node_latencies)
+    }
+
+    pub async fn remove_nodes(&self, ids: Vec<String>) -> Result<(), ApiError> {
+        self.execute::<RemoveNodes>(remove_nodes::Variables { ids })
+            .await?;
+        Ok(())
     }
 }

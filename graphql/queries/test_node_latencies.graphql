@@ -1,0 +1,3 @@
+mutation TestNodeLatencies($ids: [ID!]) {
+  testNodeLatencies(ids: $ids) { id latencyMs alive message }
+}

@@ -1,34 +1,49 @@
 mod add;
+mod row;
 
 use adw::prelude::*;
 use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
 
 use crate::{
-    api::{Api, node::Node},
+    api::{
+        Api,
+        node::{Node, NodeLatency},
+    },
     error::ApiError,
     ui::error_dialog::DialogExt,
 };
 use add::{AddMsg, AddNodes, AddOutput};
+use row::{Latency, NodeRow};
 
 pub struct Nodes {
     api: Api,
-    records: Vec<Node>,
     group: adw::PreferencesGroup,
-    rows: Vec<adw::ActionRow>,
+    rows: Vec<NodeRow>,
     busy: bool,
-    error: Option<ApiError>,
+    error: Option<(&'static str, ApiError)>,
     error_dialog: adw::AlertDialog,
     add: Option<Controller<AddNodes>>,
+    delete_dialog: Option<adw::AlertDialog>,
 }
 
 #[derive(Debug)]
 pub enum NodeMsg {
     Refresh,
+    Test,
+    ConfirmDelete(String),
+    Delete(String),
     Add,
     Added(AddOutput),
     ShowError,
     Retranslate,
+}
+
+#[derive(Debug)]
+pub enum NodeCommand {
+    Loaded(Result<Vec<Node>, ApiError>),
+    Tested(Result<Vec<NodeLatency>, ApiError>),
+    Deleted(String, Result<(), ApiError>),
 }
 
 #[relm4::component(pub)]
@@ -36,14 +51,15 @@ impl Component for Nodes {
     type Init = Api;
     type Input = NodeMsg;
     type Output = ();
-    type CommandOutput = Result<Vec<Node>, ApiError>;
+    type CommandOutput = NodeCommand;
 
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
+            connect_map => NodeMsg::Test,
             adw::Banner {
                 #[watch]
-                set_title: t!("nodes.load_error").as_ref(),
+                set_title: model.error.as_ref().map(|(key, _)| t!(*key)).unwrap_or_default().as_ref(),
                 #[watch]
                 set_button_label: Some(t!("error.details").as_ref()),
                 #[watch]
@@ -72,7 +88,7 @@ impl Component for Nodes {
                                 set_hexpand: true,
                                 set_xalign: 0.0,
                                 #[watch]
-                                set_label: &model.records.len().to_string(),
+                                set_label: &model.rows.len().to_string(),
                             },
                             gtk::Spinner {
                                 #[watch]
@@ -83,7 +99,9 @@ impl Component for Nodes {
                             gtk::Button {
                                 set_icon_name: "network-transmit-receive-symbolic",
                                 add_css_class: "flat",
-                                set_sensitive: false,
+                                #[watch]
+                                set_sensitive: !model.busy && !model.rows.is_empty(),
+                                connect_clicked => NodeMsg::Test,
                                 #[watch]
                                 set_tooltip_text: Some(t!("nodes.test").as_ref()),
                             },
@@ -111,7 +129,7 @@ impl Component for Nodes {
                             #[watch]
                             set_title: t!("nodes.empty").as_ref(),
                             #[watch]
-                            set_visible: model.records.is_empty() && !model.busy && model.error.is_none(),
+                            set_visible: model.rows.is_empty() && !model.busy && model.error.is_none(),
                         },
                         gtk::Button {
                             set_halign: gtk::Align::Center,
@@ -137,13 +155,13 @@ impl Component for Nodes {
 
         let model = Self {
             api,
-            records: Vec::new(),
             group: adw::PreferencesGroup::new(),
             rows: Vec::new(),
             busy: false,
             error: None,
             error_dialog,
             add: None,
+            delete_dialog: None,
         };
 
         let group = &model.group;
@@ -160,7 +178,49 @@ impl Component for Nodes {
                 self.busy = true;
                 self.error = None;
                 let api = self.api.clone();
-                sender.oneshot_command(async move { api.nodes().await });
+                sender.oneshot_command(async move { NodeCommand::Loaded(api.nodes().await) });
+            }
+            NodeMsg::Test => {
+                if self.busy || self.rows.is_empty() {
+                    return;
+                }
+                self.busy = true;
+                self.error = None;
+                for row in &mut self.rows {
+                    row.latency = Latency::Testing;
+                }
+                let ids = self.rows.iter().map(|row| row.node.id.clone()).collect();
+                let api = self.api.clone();
+                sender.oneshot_command(async move {
+                    NodeCommand::Tested(api.test_node_latencies(ids).await)
+                });
+            }
+            NodeMsg::ConfirmDelete(id) => {
+                let row = self.rows.iter().find(|row| row.node.id == id).unwrap();
+                let dialog = adw::AlertDialog::builder()
+                    .heading(t!("nodes.delete_title").as_ref())
+                    .body(t!("nodes.delete_hint", name = row.widget.title()).as_ref())
+                    .body_use_markup(false)
+                    .build();
+                dialog.add_response("cancel", t!("dialog.cancel").as_ref());
+                dialog.add_response("delete", t!("config.delete").as_ref());
+                dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+                dialog.set_default_response(Some("cancel"));
+                dialog.set_close_response("cancel");
+                dialog.connect_response(Some("delete"), move |_, _| {
+                    sender.input(NodeMsg::Delete(id.clone()))
+                });
+                dialog.present(Some(root));
+                self.delete_dialog = Some(dialog);
+            }
+            NodeMsg::Delete(id) => {
+                self.busy = true;
+                self.error = None;
+                let api = self.api.clone();
+                sender.oneshot_command(async move {
+                    let result = api.remove_nodes(vec![id.clone()]).await;
+                    NodeCommand::Deleted(id, result)
+                });
             }
             NodeMsg::Add => {
                 let add = AddNodes::builder()
@@ -177,13 +237,11 @@ impl Component for Nodes {
                 sender.output(()).unwrap();
             }
             NodeMsg::ShowError => {
-                if let Some(error) = &self.error {
-                    self.error_dialog
-                        .show_error(t!("nodes.load_error").as_ref(), error, root);
+                if let Some((key, error)) = &self.error {
+                    self.error_dialog.show_error(t!(*key).as_ref(), error, root);
                 }
             }
             NodeMsg::Retranslate => {
-                self.render();
                 if let Some(add) = &self.add {
                     add.emit(AddMsg::Retranslate);
                 }
@@ -195,22 +253,74 @@ impl Component for Nodes {
         &mut self,
         result: Self::CommandOutput,
         sender: ComponentSender<Self>,
-        _root: &Self::Root,
+        root: &Self::Root,
     ) {
         self.busy = false;
-
-        match result {
-            Ok(records) => {
-                self.records = records;
-                self.render();
+        let report_in_dialog = matches!(&result, NodeCommand::Deleted(_, Err(_)));
+        let (key, result) = match result {
+            NodeCommand::Loaded(result) => (
+                "nodes.load_error",
+                result.map(|records| {
+                    for row in self.rows.drain(..) {
+                        self.group.remove(&row.widget);
+                    }
+                    for node in records {
+                        let row = NodeRow::new(node, sender.input_sender().clone());
+                        self.group.add(&row.widget);
+                        self.rows.push(row);
+                    }
+                    if root.is_mapped() {
+                        sender.input(NodeMsg::Test);
+                    }
+                }),
+            ),
+            NodeCommand::Tested(result) => {
+                for row in &mut self.rows {
+                    row.latency = if result.is_ok() {
+                        Latency::Untested
+                    } else {
+                        Latency::RequestFailed
+                    };
+                }
+                (
+                    "nodes.test_error",
+                    result.map(|results| {
+                        for result in results {
+                            if let Some(row) =
+                                self.rows.iter_mut().find(|row| row.node.id == result.id)
+                            {
+                                row.latency = Latency::Measured(result);
+                            }
+                        }
+                    }),
+                )
             }
+            NodeCommand::Deleted(id, result) => (
+                "nodes.delete_error",
+                result.map(|()| {
+                    let index = self.rows.iter().position(|row| row.node.id == id).unwrap();
+                    self.group.remove(&self.rows.remove(index).widget);
+                }),
+            ),
+        };
+        match result {
+            Ok(()) => {}
             Err(ApiError::Unauthorized) => {
                 sender.output(()).unwrap();
             }
             Err(error) => {
-                tracing::warn!(endpoint = %self.api.endpoint(), %error, "Could not read nodes");
-                self.error = Some(error);
+                tracing::warn!(endpoint = %self.api.endpoint(), operation = key, %error, "Node operation failed");
+                if report_in_dialog {
+                    self.error_dialog.show_error(t!(key).as_ref(), &error, root);
+                }
+                self.error = Some((key, error));
             }
+        }
+    }
+
+    fn post_view(&self, _widgets: &mut Self::Widgets) {
+        for row in &self.rows {
+            row.update(self.busy);
         }
     }
 
@@ -218,53 +328,8 @@ impl Component for Nodes {
         if self.error_dialog.parent().is_some() {
             self.error_dialog.force_close();
         }
-    }
-}
-
-impl Nodes {
-    fn render(&mut self) {
-        self.rows.iter().for_each(|row| {
-            self.group.remove(row);
-        });
-
-        self.records.iter().for_each(|node| {
-            let tag = node.tag.as_deref().filter(|tag| !tag.is_empty());
-
-            let row = adw::ActionRow::builder()
-                .title(tag.unwrap_or(&node.name))
-                .subtitle(format!("{} · {}", node.protocol.to_uppercase(), node.name))
-                .use_markup(false)
-                .title_lines(1)
-                .subtitle_lines(1)
-                .build();
-
-            let icon = gtk::Image::builder()
-                .icon_name("network-workgroup-symbolic")
-                .icon_size(gtk::IconSize::Large)
-                .css_classes(["dim-label"])
-                .build();
-
-            row.add_prefix(&icon);
-            row.set_tooltip_text(Some(&node.name));
-
-            for (icon, key) in [
-                ("document-edit-symbolic", "nodes.edit"),
-                ("insert-link-symbolic", "nodes.share"),
-                ("user-trash-symbolic", "nodes.delete"),
-            ] {
-                let button = gtk::Button::builder()
-                    .icon_name(icon)
-                    .tooltip_text(t!(key).as_ref())
-                    .sensitive(false)
-                    .valign(gtk::Align::Center)
-                    .css_classes(["flat"])
-                    .build();
-
-                row.add_suffix(&button);
-            }
-
-            self.group.add(&row);
-            self.rows.push(row);
-        });
+        if let Some(dialog) = &self.delete_dialog {
+            dialog.force_close();
+        }
     }
 }

@@ -189,8 +189,9 @@ impl ServerPage {
                 .icon_name("user-trash-symbolic")
                 .tooltip_text(t!("server.delete_title").as_ref())
                 .valign(gtk::Align::Center)
+                .css_classes(["flat", "error"])
                 .build();
-            delete.add_css_class("flat");
+
             delete.update_property(&[gtk::accessible::Property::Label(
                 t!("server.delete_title").as_ref(),
             )]);

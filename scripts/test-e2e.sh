@@ -17,5 +17,10 @@ dbus-run-session -- bash -euo pipefail -c '
     printf "waddle-e2e-keyring" |
         gnome-keyring-daemon --unlock --components=secrets \
             --control-directory "$WADDLE_TEST_KEYRING" >/dev/null
-    cargo test --offline -- --include-ignored --test-threads=1
+    # Latency probes use SO_MARK. Grant it only inside a private network namespace.
+    # Keep the keyring outside: gnome-keyring cannot drop capabilities in a user namespace.
+    unshare --user --map-current-user --keep-caps --net sh -ec "
+        ip link set lo up
+        cargo test --offline -- --include-ignored --test-threads=1
+    "
 '
