@@ -1,0 +1,1 @@
+mutation DelGroupNodes($id: ID!, $nodes: [ID!]!) { groupDelNodes(id: $id, nodeIDs: $nodes) }

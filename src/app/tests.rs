@@ -9,6 +9,7 @@ use gtk::glib;
 use std::time::{Duration, Instant};
 
 mod config;
+mod groups;
 mod node_actions;
 mod node_editor;
 mod node_share;
@@ -487,6 +488,7 @@ fn server_management_and_authentication_lifecycle() {
     assert_eq!(menu.tooltip_text().as_deref(), Some("语言"));
     language(window, "en");
     wait_for(|| connected(window, "Home"));
+    groups::manage_groups(&runtime, window, &home);
     nodes::add_and_list(&runtime, window, &home);
     config::selection_and_details(&runtime, window, &home);
     let selector = find_widget::<gtk::MenuButton>(window, &|button| {

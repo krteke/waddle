@@ -1,0 +1,8 @@
+query Groups {
+  groups {
+    id name policy
+    policyParams { key val }
+    nodes { id name tag protocol }
+    subscriptions { subscription { id } }
+  }
+}

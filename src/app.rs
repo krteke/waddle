@@ -299,6 +299,7 @@ impl App {
                 self.workspace.overview.clone(),
                 self.workspace.configurations.clone(),
                 self.workspace.nodes.clone(),
+                self.workspace.groups.clone(),
             ))
             .forward(sender.input_sender(), move |event| {
                 AppMsg::Connection(name.clone(), event)

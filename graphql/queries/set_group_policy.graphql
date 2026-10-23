@@ -1,0 +1,3 @@
+mutation SetGroupPolicy($id: ID!, $policy: Policy!, $params: [PolicyParam!]) {
+  groupSetPolicy(id: $id, policy: $policy, policyParams: $params)
+}

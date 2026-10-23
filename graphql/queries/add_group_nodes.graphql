@@ -1,0 +1,1 @@
+mutation AddGroupNodes($id: ID!, $nodes: [ID!]!) { groupAddNodes(id: $id, nodeIDs: $nodes) }

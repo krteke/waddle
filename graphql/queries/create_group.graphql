@@ -1,0 +1,3 @@
+mutation CreateGroup($name: String!, $policy: Policy!, $params: [PolicyParam!]) {
+  createGroup(name: $name, policy: $policy, policyParams: $params) { id }
+}

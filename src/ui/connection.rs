@@ -4,6 +4,7 @@ use rust_i18n::t;
 
 use super::{
     config::{ConfigMsg, Configs},
+    groups::{GroupMsg, Groups},
     login_dialog::LoginDialog,
     nodes::{NodeMsg, Nodes},
     overview::Overview,
@@ -41,6 +42,8 @@ pub struct Connection {
     config_stack: gtk::Stack,
     nodes: Option<Controller<Nodes>>,
     node_stack: gtk::Stack,
+    groups: Option<Controller<Groups>>,
+    group_stack: gtk::Stack,
 }
 
 #[derive(Debug)]
@@ -64,6 +67,7 @@ impl Component for Connection {
     type Init = (
         adw::ApplicationWindow,
         Server,
+        gtk::Stack,
         gtk::Stack,
         gtk::Stack,
         gtk::Stack,
@@ -138,7 +142,7 @@ impl Component for Connection {
     }
 
     fn init(
-        (parent, server, overview_stack, config_stack, node_stack): Self::Init,
+        (parent, server, overview_stack, config_stack, node_stack, group_stack): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -168,6 +172,8 @@ impl Component for Connection {
             config_stack,
             nodes: None,
             node_stack,
+            groups: None,
+            group_stack,
         };
 
         let proxy_content = &model.proxy_content;
@@ -198,6 +204,11 @@ impl Component for Connection {
             }
 
             self.node_stack.set_visible_child_name("placeholder");
+            if let Some(groups) = self.groups.take() {
+                self.group_stack.remove(groups.widget());
+            }
+
+            self.group_stack.set_visible_child_name("placeholder");
         }
 
         match message {
@@ -228,6 +239,9 @@ impl Component for Connection {
                 sender.oneshot_command(async move { auth::sign_out(&server_name).await });
             }
             ConnectionMsg::Retranslate => {
+                if let Some(groups) = &self.groups {
+                    groups.emit(GroupMsg::Retranslate);
+                }
                 if let Some(nodes) = &self.nodes {
                     nodes.emit(NodeMsg::Retranslate);
                 }
@@ -299,6 +313,14 @@ impl Component for Connection {
                 self.node_stack.set_visible_child(nodes.widget());
                 self.nodes = Some(nodes);
 
+                let groups = Groups::builder()
+                    .launch(api.clone())
+                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+
+                self.group_stack.add_child(groups.widget());
+                self.group_stack.set_visible_child(groups.widget());
+                self.groups = Some(groups);
+
                 self.phase = Phase::Connected { api, username };
                 self.error = warning;
 
@@ -347,5 +369,10 @@ impl Component for Connection {
         }
 
         self.node_stack.set_visible_child_name("placeholder");
+        if let Some(groups) = &self.groups {
+            self.group_stack.remove(groups.widget());
+        }
+
+        self.group_stack.set_visible_child_name("placeholder");
     }
 }

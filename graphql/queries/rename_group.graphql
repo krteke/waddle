@@ -1,0 +1,1 @@
+mutation RenameGroup($id: ID!, $name: String!) { renameGroup(id: $id, name: $name) }
