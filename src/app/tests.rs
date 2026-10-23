@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 mod config;
 mod node_actions;
+mod node_editor;
 mod node_share;
 mod nodes;
 mod proxy;
@@ -200,6 +201,14 @@ fn server_management_and_authentication_lifecycle() {
     let settings = settings::tests::settings();
     settings.set_string("language", "en").unwrap();
     proxy::proxy_control(&runtime);
+    crate::ui::nodes::form_tests::transport_switch_preserves_separate_drafts();
+    crate::ui::nodes::form_tests::tls_switch_validates_only_active_branch();
+    crate::ui::nodes::form_tests::plugin_switch_constructs_only_selected_plugin();
+    crate::ui::nodes::form_tests::trojan_go_prefills_transport_and_encryption();
+    crate::ui::nodes::form_tests::inspect_transport_and_tls_forms(|window, name| {
+        capture(window, name)
+    });
+    node_editor::create_and_edit(&runtime);
     node_share::shares_original_link(&runtime);
     node_actions::latency_and_deletion(&runtime);
     long_server_menu_stays_scrollable();

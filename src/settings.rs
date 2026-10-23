@@ -176,10 +176,10 @@ impl ServerSettings {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use super::*;
 
-    pub(crate) fn settings() -> gio::Settings {
+    pub fn settings() -> gio::Settings {
         let source =
             gio::SettingsSchemaSource::from_directory(env!("OUT_DIR"), None, false).unwrap();
         let schema = source.lookup(APPLICATION_ID, false).unwrap();

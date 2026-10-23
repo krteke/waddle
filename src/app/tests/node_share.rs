@@ -4,7 +4,7 @@ use crate::{api::node::ImportArgument, ui::nodes::Nodes};
 const LINK: &str =
     "trojan://test-password@hk.example.com:443?allowInsecure=1&sni=hk.example.com#Original%20Name";
 
-pub(super) fn shares_original_link(runtime: &tokio::runtime::Runtime) {
+pub fn shares_original_link(runtime: &tokio::runtime::Runtime) {
     let wing = Wing::start();
     let long_link = format!("trojan://{}@hk.example.com:443#Long", "x".repeat(4000));
     let api = runtime.block_on(async {

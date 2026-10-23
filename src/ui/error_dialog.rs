@@ -46,6 +46,7 @@ impl DialogExt for adw::AlertDialog {
             .child(&label)
             .build();
 
+        self.set_body("");
         self.set_heading(Some(heading));
         self.set_response_label("close", t!("dialog.close").as_ref());
         self.set_extra_child(Some(&scroll));

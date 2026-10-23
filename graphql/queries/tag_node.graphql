@@ -1,0 +1,3 @@
+mutation TagNode($id: ID!, $tag: String!) {
+  tagNode(id: $id, tag: $tag)
+}

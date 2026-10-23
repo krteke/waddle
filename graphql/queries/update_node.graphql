@@ -1,0 +1,3 @@
+mutation UpdateNode($id: ID!, $newLink: String!) {
+  updateNode(id: $id, newLink: $newLink) { id }
+}

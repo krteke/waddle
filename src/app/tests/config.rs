@@ -19,7 +19,7 @@ async fn request(wing: &Wing, query: &str, variables: Value) -> Value {
     result["data"].clone()
 }
 
-pub(super) fn selection_and_details(
+pub fn selection_and_details(
     runtime: &tokio::runtime::Runtime,
     window: &adw::ApplicationWindow,
     wing: &Wing,

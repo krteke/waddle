@@ -3,7 +3,7 @@ use crate::api::node::Node;
 
 const TROJAN: &str = "trojan://test-password@hk.example.com:443#Original%20Name";
 
-pub(super) fn add_and_list(
+pub fn add_and_list(
     runtime: &tokio::runtime::Runtime,
     window: &adw::ApplicationWindow,
     wing: &Wing,

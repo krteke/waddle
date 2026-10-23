@@ -104,8 +104,7 @@ impl Drop for ProxyServer {
     }
 }
 
-// Called on the existing GTK test thread, since GTK cannot be initialized on another thread.
-pub(super) fn proxy_control(runtime: &tokio::runtime::Runtime) {
+pub fn proxy_control(runtime: &tokio::runtime::Runtime) {
     let server = ProxyServer::start(runtime);
     let status = adw::ActionRow::new();
     let controller = Proxy::builder()

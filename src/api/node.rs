@@ -36,7 +36,37 @@ struct TestNodeLatencies;
 )]
 struct RemoveNodes;
 
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/update_node.graphql",
+    response_derives = "Debug"
+)]
+struct UpdateNode;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/tag_node.graphql",
+    response_derives = "Debug"
+)]
+struct TagNode;
+
 impl Api {
+    pub async fn update_node(&self, id: String, new_link: String) -> Result<(), ApiError> {
+        self.execute::<UpdateNode>(update_node::Variables { id, new_link })
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn tag_node(&self, id: String, tag: String) -> Result<(), ApiError> {
+        self.execute::<TagNode>(tag_node::Variables { id, tag })
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn nodes(&self) -> Result<Vec<Node>, ApiError> {
         Ok(self
             .execute::<Nodes>(nodes::Variables {})

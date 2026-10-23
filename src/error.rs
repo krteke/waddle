@@ -6,6 +6,36 @@ pub trait Message {
 }
 
 #[derive(Debug, thiserror::Error)]
+pub enum SaveError {
+    #[error(transparent)]
+    Link(#[from] LinkError),
+    #[error(transparent)]
+    Api(#[from] ApiError),
+    #[error("The node link was saved, but its tag could not be updated: {0}")]
+    Tag(ApiError),
+    #[error("{0}")]
+    Import(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LinkError {
+    #[error("Unsupported node link format or options")]
+    Unsupported,
+    #[error("Invalid node link structure")]
+    Structure,
+    #[error("Invalid URL: {0}")]
+    Url(#[from] url::ParseError),
+    #[error("Invalid base64: {0}")]
+    Base64(#[from] base64::DecodeError),
+    #[error("Invalid UTF-8: {0}")]
+    Utf8(#[from] std::string::FromUtf8Error),
+    #[error("Invalid JSON: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("Invalid port: {0}")]
+    Port(#[from] std::num::ParseIntError),
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("Server rejected authentication")]
     Unauthorized,

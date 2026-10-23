@@ -88,7 +88,7 @@ impl Drop for ProbeEndpoint {
     }
 }
 
-pub(super) fn latency_and_deletion(runtime: &tokio::runtime::Runtime) {
+pub fn latency_and_deletion(runtime: &tokio::runtime::Runtime) {
     let wing = Wing::start();
     let probe = ProbeEndpoint::start(runtime);
     let api = runtime.block_on(async {

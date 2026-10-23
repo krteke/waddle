@@ -62,7 +62,6 @@ impl NodeRow {
         let edit = gtk::Button::builder()
             .icon_name("document-edit-symbolic")
             .css_classes(["flat"])
-            .sensitive(false)
             .build();
 
         let share = gtk::Button::builder()
@@ -74,6 +73,10 @@ impl NodeRow {
             .icon_name("user-trash-symbolic")
             .css_classes(["flat", "error"])
             .build();
+
+        let id = node.id.clone();
+        let edit_input = input.clone();
+        edit.connect_clicked(move |_| edit_input.emit(NodeMsg::Edit(id.clone())));
 
         let id = node.id.clone();
         let share_input = input.clone();
@@ -129,6 +132,7 @@ impl NodeRow {
     }
 
     pub fn update(&self, busy: bool) {
+        self.edit.set_sensitive(!busy);
         self.edit.set_tooltip_text(Some(t!("nodes.edit").as_ref()));
         self.share
             .set_tooltip_text(Some(t!("nodes.share").as_ref()));

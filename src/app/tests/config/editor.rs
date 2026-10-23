@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn create_and_edit(
+pub fn create_and_edit(
     runtime: &tokio::runtime::Runtime,
     window: &adw::ApplicationWindow,
     wing: &Wing,
