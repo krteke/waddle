@@ -24,11 +24,7 @@ pub fn manage_groups(
             },
         ]))
         .unwrap();
-    find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|label| label.text() == "Groups").is_some()
-    })
-    .unwrap()
-    .activate();
+    navigation_row(window, "Groups").activate();
     wait_for(|| {
         find_widget::<adw::NavigationPage>(window, &|p| {
             p.tag().as_deref() == Some("group-list") && p.is_mapped()

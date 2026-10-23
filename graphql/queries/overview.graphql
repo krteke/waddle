@@ -1,0 +1,9 @@
+query OverviewSummary {
+  general { dae { version } }
+  configs(selected: true) { name }
+  dnss(selected: true) { name }
+  routings(selected: true) { name }
+  nodes { totalCount }
+  groups { id }
+  subscriptions { id }
+}

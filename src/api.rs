@@ -9,6 +9,7 @@ use crate::{credentials::Credentials, error::ApiError};
 pub mod config;
 pub mod group;
 pub mod node;
+pub mod overview;
 
 #[derive(GraphQLQuery)]
 #[graphql(

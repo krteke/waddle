@@ -1,6 +1,7 @@
 mod dialogs;
 mod editor;
 mod identity;
+mod member;
 mod picker;
 mod row;
 

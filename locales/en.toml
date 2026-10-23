@@ -325,3 +325,11 @@ subscriptions = "Subscription Groups"
 subscriptions_placeholder = "Subscription group editing is not available yet."
 subscription_count = "%{count} subscription groups"
 discard_hint = "Your changes to this group have not been saved."
+
+[overview]
+refresh = "Refresh Overview"
+load_error = "Could not load overview."
+selection = "Current Selection"
+none_selected = "None selected"
+resources = "Resources"
+core_version = "dae %{version}"

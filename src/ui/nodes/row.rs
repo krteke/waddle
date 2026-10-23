@@ -3,23 +3,16 @@ use relm4::{Sender, adw, gtk};
 use rust_i18n::t;
 
 use super::NodeMsg;
-use crate::api::node::{Node, NodeLatency};
-
-pub enum Latency {
-    Untested,
-    Testing,
-    Measured(NodeLatency),
-    RequestFailed,
-}
+use crate::{
+    api::node::Node,
+    ui::latency::{Latency, LatencyIndicator},
+};
 
 pub struct NodeRow {
     pub node: Node,
     pub widget: adw::ActionRow,
     pub latency: Latency,
-    status: gtk::Box,
-    spinner: adw::Spinner,
-    icon: gtk::Image,
-    label: gtk::Label,
+    indicator: LatencyIndicator,
     edit: gtk::Button,
     share: gtk::Button,
     delete: gtk::Button,
@@ -91,36 +84,15 @@ impl NodeRow {
 
         suffix.append(&actions);
 
-        let status = gtk::Box::builder()
-            .spacing(6)
-            .halign(gtk::Align::End)
-            .build();
-
-        let spinner = adw::Spinner::builder()
-            .width_request(16)
-            .height_request(16)
-            .build();
-
-        let icon = gtk::Image::new();
-        let label = gtk::Label::builder()
-            .css_classes(["caption", "numeric"])
-            .build();
-
-        status.append(&spinner);
-        status.append(&icon);
-        status.append(&label);
-
-        suffix.append(&status);
+        let indicator = LatencyIndicator::new();
+        suffix.append(&indicator.widget);
         widget.add_suffix(&suffix);
 
         let row = Self {
             node,
             widget,
             latency: Latency::Untested,
-            status,
-            spinner,
-            icon,
-            label,
+            indicator,
             edit,
             share,
             delete,
@@ -141,41 +113,6 @@ impl NodeRow {
             .set_tooltip_text(Some(t!("nodes.delete").as_ref()));
         self.delete.set_sensitive(!busy);
 
-        let testing = matches!(self.latency, Latency::Testing);
-
-        self.spinner.set_visible(testing);
-        self.icon.set_visible(!testing);
-
-        let (text, icon, class) = match &self.latency {
-            Latency::Untested => (
-                t!("nodes.untested"),
-                "content-loading-symbolic",
-                "dim-label",
-            ),
-            Latency::Testing => (t!("nodes.testing"), "", "accent"),
-            Latency::Measured(result) if result.alive => (
-                result
-                    .latency_ms
-                    .map(|ms| t!("nodes.latency", ms = ms))
-                    .unwrap_or_else(|| t!("nodes.available")),
-                "object-select-symbolic",
-                "success",
-            ),
-            Latency::Measured(_) | Latency::RequestFailed => {
-                (t!("nodes.test_failed"), "dialog-error-symbolic", "error")
-            }
-        };
-
-        self.label.set_label(&text);
-
-        self.icon.set_icon_name(Some(icon));
-        self.icon.set_css_classes(&[class]);
-
-        self.spinner.set_css_classes(&[class]);
-
-        self.status.set_tooltip_text(match &self.latency {
-            Latency::Measured(result) => result.message.as_deref(),
-            _ => None,
-        });
+        self.indicator.update(&self.latency);
     }
 }

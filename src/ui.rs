@@ -2,6 +2,7 @@ pub mod config;
 pub mod connection;
 mod error_dialog;
 pub mod groups;
+mod latency;
 pub mod login_dialog;
 pub mod nodes;
 pub mod overview;

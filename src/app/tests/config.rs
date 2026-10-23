@@ -24,10 +24,7 @@ pub fn selection_and_details(
     window: &adw::ApplicationWindow,
     wing: &Wing,
 ) {
-    let nav = find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|label| label.text() == "Config").is_some()
-    })
-    .unwrap();
+    let nav = navigation_row(window, "Config");
     nav.activate();
     wait_for(|| {
         find_widget::<adw::StatusPage>(window, &|page| {
@@ -73,7 +70,27 @@ pub fn selection_and_details(
     assert!(editor.can_pop());
     click_icon(&editor, "go-previous-symbolic");
     wait_for(|| page.is_mapped());
+    let navigation = page
+        .ancestor(adw::NavigationView::static_type())
+        .unwrap()
+        .downcast::<adw::NavigationView>()
+        .unwrap();
+    assert!(
+        window.visible_dialog().is_none(),
+        "unexpected dialog after leaving config editor"
+    );
+    assert_eq!(navigation.visible_page().as_ref(), Some(&page));
+    assert!(
+        editor.parent().is_none(),
+        "popped editor must be removed from navigation"
+    );
+    assert!(
+        copy.is_mapped(),
+        "config row must still be in the current list"
+    );
     let copy_menu = find_widget::<gtk::MenuButton>(&copy, &|_| true).unwrap();
+    window.present();
+    wait_for(|| window.is_active());
     copy_menu.popup();
     let copy_popover = copy_menu.popover().unwrap();
     wait_for(|| copy_popover.is_mapped());
@@ -166,11 +183,7 @@ pub fn selection_and_details(
     );
     mutations(runtime, window, wing, &page);
     editor::create_and_edit(runtime, window, wing, &page);
-    find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|l| l.text() == "Overview").is_some()
-    })
-    .unwrap()
-    .activate();
+    navigation_row(window, "Overview").activate();
 }
 
 fn open_menu(page: &adw::NavigationPage, name: &str) -> gtk::Popover {

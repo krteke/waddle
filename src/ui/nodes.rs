@@ -9,6 +9,7 @@ use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
 
 use crate::node::{DecodeExt, Protocol};
+use crate::ui::latency::Latency;
 use crate::{
     api::{
         Api,
@@ -19,7 +20,7 @@ use crate::{
 };
 use add::{AddMsg, AddNodes, AddOutput};
 use editor::{Editor, EditorMsg, EditorOutput};
-use row::{Latency, NodeRow};
+use row::NodeRow;
 
 pub struct Nodes {
     api: Api,

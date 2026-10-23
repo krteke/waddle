@@ -14,15 +14,15 @@ use tokio::{
 };
 
 // A local SOCKS5 endpoint answers the backend's HTTP check, without public network access.
-struct ProbeEndpoint {
-    address: std::net::SocketAddr,
-    requests: Arc<AtomicUsize>,
-    release: Arc<Semaphore>,
+pub(super) struct ProbeEndpoint {
+    pub(super) address: std::net::SocketAddr,
+    pub(super) requests: Arc<AtomicUsize>,
+    pub(super) release: Arc<Semaphore>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl ProbeEndpoint {
-    fn start(runtime: &tokio::runtime::Runtime) -> Self {
+    pub(super) fn start(runtime: &tokio::runtime::Runtime) -> Self {
         let listener = runtime.block_on(TcpListener::bind("127.0.0.1:0")).unwrap();
         let address = listener.local_addr().unwrap();
         let requests = Arc::new(AtomicUsize::new(0));

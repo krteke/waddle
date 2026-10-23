@@ -9,11 +9,13 @@ use gtk::glib;
 use std::time::{Duration, Instant};
 
 mod config;
+mod group_latency;
 mod groups;
 mod node_actions;
 mod node_editor;
 mod node_share;
 mod nodes;
+mod overview;
 mod proxy;
 
 fn find_widget<W: IsA<gtk::Widget>>(
@@ -52,6 +54,17 @@ fn wait_for(condition: impl Fn() -> bool) {
     }
 }
 
+fn navigation_row(window: &adw::ApplicationWindow, title: &str) -> gtk::ListBoxRow {
+    let list =
+        find_widget::<gtk::ListBox>(window, &|list| list.has_css_class("navigation-sidebar"))
+            .unwrap();
+    find_widget::<gtk::ListBoxRow>(&list, &|row| {
+        find_widget::<gtk::Label>(row, &|label| label.text() == title).is_some()
+    })
+    .unwrap()
+}
+
+#[track_caller]
 fn click(root: &impl IsA<gtk::Widget>, label: &str) {
     let matches =
         |button: &gtk::Button| button.label().as_deref() == Some(label) && button.is_mapped();
@@ -61,6 +74,7 @@ fn click(root: &impl IsA<gtk::Widget>, label: &str) {
     button.emit_clicked();
 }
 
+#[track_caller]
 fn click_icon(root: &impl IsA<gtk::Widget>, icon: &str) {
     let matches =
         |button: &gtk::Button| button.icon_name().as_deref() == Some(icon) && button.is_mapped();
@@ -212,6 +226,7 @@ fn server_management_and_authentication_lifecycle() {
     node_editor::create_and_edit(&runtime);
     node_share::shares_original_link(&runtime);
     node_actions::latency_and_deletion(&runtime);
+    group_latency::member_latency_and_removal(&runtime);
     long_server_menu_stays_scrollable();
     let controller = App::builder()
         .launch(ServerSettings::load(settings.clone()))
@@ -274,10 +289,7 @@ fn server_management_and_authentication_lifecycle() {
         );
     }
     assert!(navigation_list.row_at_index(7).is_none());
-    let nodes = find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|label| label.text() == "Nodes").is_some()
-    })
-    .unwrap();
+    let nodes = navigation_row(window, "Nodes");
     nodes.activate();
     wait_for(|| pages.visible_child_name().as_deref() == Some("nodes"));
     capture(window, "wide");
@@ -293,10 +305,7 @@ fn server_management_and_authentication_lifecycle() {
     click_icon(window, "sidebar-show-symbolic");
     wait_for(|| split.shows_sidebar());
     capture(window, "narrow");
-    let subscriptions = find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|label| label.text() == "Subscriptions").is_some()
-    })
-    .unwrap();
+    let subscriptions = navigation_row(window, "Subscriptions");
     subscriptions.activate();
     wait_for(|| {
         pages.visible_child_name().as_deref() == Some("subscriptions") && !split.shows_sidebar()
@@ -488,6 +497,7 @@ fn server_management_and_authentication_lifecycle() {
     assert_eq!(menu.tooltip_text().as_deref(), Some("语言"));
     language(window, "en");
     wait_for(|| connected(window, "Home"));
+    overview::summary_follows_backend(&runtime, window, &home);
     groups::manage_groups(&runtime, window, &home);
     nodes::add_and_list(&runtime, window, &home);
     config::selection_and_details(&runtime, window, &home);
@@ -626,11 +636,7 @@ fn server_management_and_authentication_lifecycle() {
         .set_active(true);
     click(&login, "Sign In");
     wait_for(|| connected(window, "Office"));
-    find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|l| l.text() == "Config").is_some()
-    })
-    .unwrap()
-    .activate();
+    navigation_row(window, "Config").activate();
     wait_for(|| {
         find_widget::<adw::StatusPage>(window, &|p| {
             p.is_mapped() && p.title() == "No Configurations"
@@ -641,11 +647,22 @@ fn server_management_and_authentication_lifecycle() {
         find_widget::<adw::ActionRow>(window, &|r| r.title() == "global (copy)").is_none(),
         "switching servers must discard the previous config list"
     );
-    find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|l| l.text() == "Overview").is_some()
-    })
-    .unwrap()
-    .activate();
+    navigation_row(window, "Overview").activate();
+    wait_for(|| {
+        find_widget::<adw::ActionRow>(window, &|row| {
+            row.is_mapped()
+                && row.title() == "Config"
+                && row.subtitle().as_deref() == Some("None selected")
+        })
+        .is_some()
+    });
+    let office_nodes =
+        find_widget::<adw::ActionRow>(window, &|row| row.is_mapped() && row.title() == "Nodes")
+            .unwrap();
+    assert!(
+        find_widget::<gtk::Label>(&office_nodes, &|label| label.text() == "0").is_some(),
+        "switching servers must discard the previous overview counts"
+    );
     click_icon(window, "network-server-symbolic");
     let row = find_widget::<adw::ActionRow>(window, &|row| row.title() == "Office").unwrap();
     click_icon(&row, "non-starred-symbolic");

@@ -7,7 +7,7 @@ use super::{
     groups::{GroupMsg, Groups},
     login_dialog::LoginDialog,
     nodes::{NodeMsg, Nodes},
-    overview::Overview,
+    overview::{Overview, OverviewMsg, OverviewOutput},
     proxy::{Proxy, ProxyMsg},
 };
 use crate::{
@@ -34,7 +34,7 @@ pub struct Connection {
     phase: Phase,
     error: Option<ConnectionError>,
     login: LoginDialog,
-    overview: Overview,
+    overview: Option<Controller<Overview>>,
     overview_stack: gtk::Stack,
     proxy: Option<Controller<Proxy>>,
     proxy_content: gtk::Box,
@@ -53,6 +53,7 @@ pub enum ConnectionMsg {
     SignOut,
     Retranslate,
     RefreshSession,
+    Overview(OverviewOutput),
 }
 
 #[derive(Debug)]
@@ -155,8 +156,6 @@ impl Component for Connection {
         };
 
         let login = LoginDialog::new(&sender, &server.name);
-        let overview = Overview::new(&sender);
-        overview_stack.add_child(&overview.content);
         let model = Self {
             server_name: server.name,
             parent,
@@ -164,7 +163,7 @@ impl Component for Connection {
             phase,
             error: None,
             login,
-            overview,
+            overview: None,
             overview_stack,
             proxy: None,
             proxy_content: gtk::Box::new(gtk::Orientation::Vertical, 0),
@@ -190,6 +189,10 @@ impl Component for Connection {
             message,
             ConnectionMsg::Retry(_) | ConnectionMsg::Submit | ConnectionMsg::SignOut
         ) {
+            if let Some(overview) = self.overview.take() {
+                self.overview_stack.remove(overview.widget());
+            }
+            self.overview_stack.set_visible_child_name("placeholder");
             if let Some(proxy) = self.proxy.take() {
                 self.proxy_content.remove(proxy.widget());
             }
@@ -238,7 +241,16 @@ impl Component for Connection {
                 let server_name = self.server_name.clone();
                 sender.oneshot_command(async move { auth::sign_out(&server_name).await });
             }
+            ConnectionMsg::Overview(OverviewOutput::SignOut) => {
+                sender.output(ConnectionOutput::SignOut).unwrap();
+            }
+            ConnectionMsg::Overview(OverviewOutput::Unauthorized) => {
+                sender.output(ConnectionOutput::Retry).unwrap();
+            }
             ConnectionMsg::Retranslate => {
+                if let Some(overview) = &self.overview {
+                    overview.emit(OverviewMsg::Retranslate);
+                }
                 if let Some(groups) = &self.groups {
                     groups.emit(GroupMsg::Retranslate);
                 }
@@ -291,11 +303,17 @@ impl Component for Connection {
                 username,
                 warning,
             } => {
+                let overview = Overview::builder()
+                    .launch((api.clone(), username.clone()))
+                    .forward(sender.input_sender(), ConnectionMsg::Overview);
                 let proxy = Proxy::builder()
-                    .launch((api.clone(), self.overview.proxy.clone()))
+                    .launch((api.clone(), overview.model().proxy.clone()))
                     .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
                 self.proxy_content.append(proxy.widget());
                 self.proxy = Some(proxy);
+                self.overview_stack.add_child(overview.widget());
+                self.overview_stack.set_visible_child(overview.widget());
+                self.overview = Some(overview);
 
                 let configs = Configs::builder()
                     .launch(api.clone())
@@ -346,19 +364,15 @@ impl Component for Connection {
         );
     }
 
-    fn post_view() {
-        if let Phase::Connected { username, .. } = &self.phase {
-            self.overview.refresh(username);
-            self.overview_stack
-                .set_visible_child(&self.overview.content);
-        } else {
-            self.overview_stack.set_visible_child_name("placeholder");
-        }
-    }
-
     fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
         self.login.close();
-        self.overview_stack.remove(&self.overview.content);
+
+        if let Some(overview) = self.overview.take() {
+            self.overview_stack.remove(overview.widget());
+        }
+
+        self.overview_stack.set_visible_child_name("placeholder");
+
         if let Some(configs) = &self.configs {
             self.config_stack.remove(configs.widget());
         }

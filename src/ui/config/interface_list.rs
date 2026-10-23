@@ -35,7 +35,7 @@ impl InterfaceList {
     ) {
         let mut names = selected.to_vec();
 
-        if self.key == "wan_interface" {
+        if self.key == "wan_interface" && !names.iter().any(|name| name == "auto") {
             names.push("auto".to_owned());
         }
 

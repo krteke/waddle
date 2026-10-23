@@ -8,11 +8,7 @@ pub fn add_and_list(
     window: &adw::ApplicationWindow,
     wing: &Wing,
 ) {
-    find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|label| label.text() == "Nodes").is_some()
-    })
-    .unwrap()
-    .activate();
+    navigation_row(window, "Nodes").activate();
     wait_for(|| {
         find_widget::<adw::StatusPage>(window, &|page| {
             page.is_mapped() && page.title() == "No Nodes"
@@ -68,20 +64,12 @@ pub fn add_and_list(
 }
 
 fn sign_out_restores_placeholder(window: &adw::ApplicationWindow) {
-    find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|label| label.text() == "Overview").is_some()
-    })
-    .unwrap()
-    .activate();
+    navigation_row(window, "Overview").activate();
     click_icon(window, "system-log-out-symbolic");
     wait_for(|| window.visible_dialog().is_some());
     click(&window.visible_dialog().unwrap(), "Cancel");
     wait_for(|| window.visible_dialog().is_none());
-    find_widget::<gtk::ListBoxRow>(window, &|row| {
-        find_widget::<gtk::Label>(row, &|label| label.text() == "Nodes").is_some()
-    })
-    .unwrap()
-    .activate();
+    navigation_row(window, "Nodes").activate();
     wait_for(|| {
         find_widget::<adw::StatusPage>(window, &|page| page.is_mapped() && page.title() == "Nodes")
             .is_some()

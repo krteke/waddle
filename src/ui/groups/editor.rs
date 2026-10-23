@@ -1,14 +1,16 @@
 use super::{
-    identity::{Identity, node_row},
+    identity::Identity,
+    member::MemberRow,
     picker::{Picker, PickerMsg, PickerOutput},
 };
 use crate::{
     api::{
         Api,
         group::{Group, GroupNode},
+        node::NodeLatency,
     },
     error::ApiError,
-    ui::error_dialog::DialogExt,
+    ui::{error_dialog::DialogExt, latency::Latency},
 };
 
 use adw::prelude::*;
@@ -18,14 +20,14 @@ use rust_i18n::t;
 pub struct Editor {
     api: Api,
     original: Group,
-    members: Vec<GroupNode>,
+    members: Vec<MemberRow>,
     fields: Identity,
     nodes: adw::PreferencesGroup,
     subscriptions: adw::PreferencesGroup,
-    rows: Vec<adw::ActionRow>,
     busy: bool,
+    testing: bool,
     dirty: bool,
-    error: Option<ApiError>,
+    error: Option<(&'static str, ApiError)>,
     error_dialog: adw::AlertDialog,
     discard: adw::AlertDialog,
     picker: Option<Controller<Picker>>,
@@ -39,6 +41,7 @@ pub enum EditorMsg {
     Back,
     Discard,
     AddNodes,
+    Test,
     RemoveNode(String),
     Picker(PickerOutput),
     ShowError,
@@ -58,12 +61,18 @@ pub struct SaveReply {
     current: Option<Group>,
 }
 
+#[derive(Debug)]
+pub enum EditorReply {
+    Saved(SaveReply),
+    Tested(Result<Vec<NodeLatency>, ApiError>),
+}
+
 #[relm4::component(pub)]
 impl Component for Editor {
     type Init = (Api, Group);
     type Input = EditorMsg;
     type Output = EditorOutput;
-    type CommandOutput = SaveReply;
+    type CommandOutput = EditorReply;
     view! {
         adw::NavigationPage {
             set_tag: Some("group-editor"),
@@ -95,7 +104,7 @@ impl Component for Editor {
                 },
                 add_top_bar = &adw::Banner {
                     #[watch]
-                    set_title: &t!("groups.save_error"),
+                    set_title: &model.error.as_ref().map(|(key, _)| t!(*key)).unwrap_or_default(),
                     #[watch]
                     set_revealed: model.error.is_some(),
                     #[watch]
@@ -112,12 +121,23 @@ impl Component for Editor {
                         #[watch]
                         set_title: &t!("navigation.nodes"),
                         #[wrap(Some)]
-                        set_header_suffix = &gtk::Button {
-                            set_icon_name: "list-add-symbolic",
-                            add_css_class: "flat",
-                            #[watch]
-                            set_tooltip_text: Some(t!("groups.add_nodes").as_ref()),
-                            connect_clicked => EditorMsg::AddNodes,
+                        set_header_suffix = &gtk::Box {
+                            gtk::Button {
+                                set_icon_name: "network-transmit-receive-symbolic",
+                                add_css_class: "flat",
+                                #[watch]
+                                set_tooltip_text: Some(t!("nodes.test").as_ref()),
+                                #[watch]
+                                set_sensitive: !model.testing && !model.members.is_empty(),
+                                connect_clicked => EditorMsg::Test,
+                            },
+                            gtk::Button {
+                                set_icon_name: "list-add-symbolic",
+                                add_css_class: "flat",
+                                #[watch]
+                                set_tooltip_text: Some(t!("groups.add_nodes").as_ref()),
+                                connect_clicked => EditorMsg::AddNodes,
+                            },
                         },
                     },
                     #[local_ref]
@@ -192,12 +212,12 @@ impl Component for Editor {
         let mut model = Self {
             api,
             original: group.clone(),
-            members: group.nodes,
+            members: Vec::new(),
             fields,
             nodes: adw::PreferencesGroup::new(),
             subscriptions: adw::PreferencesGroup::new(),
-            rows: Vec::new(),
             busy: false,
+            testing: false,
             dirty: false,
             error: None,
             error_dialog,
@@ -205,7 +225,7 @@ impl Component for Editor {
             picker: None,
         };
 
-        model.render_nodes(sender.input_sender());
+        model.add_members(group.nodes, sender.input_sender());
 
         let fields = &model.fields.group;
         let nodes = &model.nodes;
@@ -213,6 +233,7 @@ impl Component for Editor {
 
         let widgets = view_output!();
 
+        sender.input(EditorMsg::Test);
         ComponentParts { model, widgets }
     }
 
@@ -220,7 +241,10 @@ impl Component for Editor {
         match msg {
             EditorMsg::Changed => self.dirty = self.read() != self.original,
             EditorMsg::Reset => {
-                self.members = self.original.nodes.clone();
+                for member in self.members.drain(..) {
+                    self.nodes.remove(&member.widget);
+                }
+                self.add_members(self.original.nodes.clone(), sender.input_sender());
 
                 self.fields.name.set_text(&self.original.name);
 
@@ -230,8 +254,6 @@ impl Component for Editor {
                         .position(|p| *p == self.original.policy)
                         .unwrap() as u32,
                 );
-
-                self.render_nodes(sender.input_sender());
 
                 self.dirty = false;
                 self.error = None;
@@ -270,14 +292,38 @@ impl Component for Editor {
                         None
                     };
 
-                    SaveReply { result, current }
+                    EditorReply::Saved(SaveReply { result, current })
+                });
+            }
+            EditorMsg::Test => {
+                if self.testing || self.members.is_empty() {
+                    return;
+                }
+
+                self.testing = true;
+                self.error = None;
+
+                for member in &mut self.members {
+                    member.latency = Latency::Testing;
+                }
+
+                let ids = self
+                    .members
+                    .iter()
+                    .map(|member| member.node.id.clone())
+                    .collect();
+
+                let api = self.api.clone();
+
+                sender.oneshot_command(async move {
+                    EditorReply::Tested(api.test_node_latencies(ids).await)
                 });
             }
             EditorMsg::AddNodes => {
                 let picker = Picker::builder()
                     .launch((
                         self.api.clone(),
-                        self.members.iter().map(|n| n.id.clone()).collect(),
+                        self.members.iter().map(|n| n.node.id.clone()).collect(),
                     ))
                     .forward(sender.input_sender(), EditorMsg::Picker);
 
@@ -286,8 +332,7 @@ impl Component for Editor {
                 self.picker = Some(picker);
             }
             EditorMsg::Picker(PickerOutput::Added(nodes)) => {
-                self.members.extend(nodes.into_iter().map(Into::into));
-                self.render_nodes(sender.input_sender());
+                self.add_members(nodes.into_iter().map(Into::into), sender.input_sender());
 
                 self.dirty = self.read() != self.original;
             }
@@ -295,20 +340,23 @@ impl Component for Editor {
                 sender.output(EditorOutput::Unauthorized).unwrap();
             }
             EditorMsg::RemoveNode(id) => {
-                self.members.retain(|node| node.id != id);
-                self.render_nodes(sender.input_sender());
+                let index = self
+                    .members
+                    .iter()
+                    .position(|member| member.node.id == id)
+                    .unwrap();
+
+                self.nodes.remove(&self.members.remove(index).widget);
 
                 self.dirty = self.read() != self.original;
             }
             EditorMsg::ShowError => {
-                if let Some(error) = &self.error {
-                    self.error_dialog
-                        .show_error(&t!("groups.save_error"), error, root);
+                if let Some((key, error)) = &self.error {
+                    self.error_dialog.show_error(&t!(*key), error, root);
                 }
             }
             EditorMsg::Retranslate => {
                 self.fields.retranslate();
-                self.render_nodes(sender.input_sender());
 
                 if let Some(picker) = &self.picker {
                     picker.emit(PickerMsg::Retranslate);
@@ -317,30 +365,88 @@ impl Component for Editor {
         }
     }
 
-    fn update_cmd(&mut self, reply: SaveReply, sender: ComponentSender<Self>, root: &Self::Root) {
-        self.busy = false;
+    fn update_cmd(&mut self, reply: EditorReply, sender: ComponentSender<Self>, root: &Self::Root) {
+        let report_in_dialog = matches!(&reply, EditorReply::Saved(_));
 
-        if let Some(current) = reply.current {
-            self.original = current;
-        }
+        let (key, result) = match reply {
+            EditorReply::Saved(reply) => {
+                self.busy = false;
 
-        self.dirty = self.read() != self.original;
+                if let Some(current) = reply.current {
+                    self.original = current;
+                }
 
-        match reply.result {
-            Ok(_) => {
-                sender.output(EditorOutput::Saved).unwrap();
+                self.dirty = self.read() != self.original;
+
+                if reply.result.is_ok() {
+                    sender.output(EditorOutput::Saved).unwrap();
+                }
+
+                ("groups.save_error", reply.result)
             }
+            EditorReply::Tested(result) => {
+                self.testing = false;
+
+                for member in &mut self.members {
+                    if matches!(member.latency, Latency::Testing) {
+                        member.latency = if result.is_ok() {
+                            Latency::Untested
+                        } else {
+                            Latency::RequestFailed
+                        };
+                    }
+                }
+
+                (
+                    "nodes.test_error",
+                    result.map(|results| {
+                        for result in results {
+                            if let Some(member) = self
+                                .members
+                                .iter_mut()
+                                .find(|member| member.node.id == result.id)
+                            {
+                                member.latency = Latency::Measured(result);
+                            }
+                        }
+                    }),
+                )
+            }
+        };
+
+        match result {
+            Ok(_) => {}
             Err(ApiError::Unauthorized) => {
                 sender.output(EditorOutput::Unauthorized).unwrap();
             }
             Err(error) => {
-                tracing::warn!(%error, "Could not save group");
+                tracing::warn!(operation = key, %error, "Group editor request failed");
 
-                self.error_dialog
-                    .show_error(&t!("groups.save_error"), &error, root);
-                self.error = Some(error);
+                if report_in_dialog {
+                    self.error_dialog.show_error(&t!(key), &error, root);
+                }
+
+                self.error = Some((key, error));
             }
         }
+    }
+
+    fn post_view(&self, _widgets: &mut Self::Widgets) {
+        for member in &self.members {
+            member.update();
+        }
+
+        self.nodes.set_description(
+            self.members
+                .is_empty()
+                .then(|| t!("groups.no_nodes"))
+                .as_deref(),
+        );
+
+        self.subscriptions.set_description(Some(&t!(
+            "groups.subscription_count",
+            count = self.original.subscriptions.len()
+        )));
     }
 
     fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
@@ -362,48 +468,28 @@ impl Editor {
     fn read(&self) -> Group {
         let mut group = self.original.clone();
 
-        group.nodes = self.members.clone();
+        group.nodes = self
+            .members
+            .iter()
+            .map(|member| member.node.clone())
+            .collect();
+
         group.name = self.fields.name.text().trim().to_owned();
         group.policy = self.fields.policy();
 
         group
     }
 
-    fn render_nodes(&mut self, input: &Sender<EditorMsg>) {
-        for row in self.rows.drain(..) {
-            self.nodes.remove(&row);
+    fn add_members(
+        &mut self,
+        nodes: impl IntoIterator<Item = GroupNode>,
+        input: &Sender<EditorMsg>,
+    ) {
+        for node in nodes {
+            let member = MemberRow::new(node, input);
+
+            self.nodes.add(&member.widget);
+            self.members.push(member);
         }
-
-        for node in &self.members {
-            let row = node_row(&node.name, node.tag.as_deref(), &node.protocol);
-
-            let remove = gtk::Button::builder()
-                .icon_name("list-remove-symbolic")
-                .css_classes(["flat", "error"])
-                .valign(gtk::Align::Center)
-                .tooltip_text(t!("groups.remove_node").as_ref())
-                .build();
-
-            let id = node.id.clone();
-            let input = input.clone();
-
-            remove.connect_clicked(move |_| input.emit(EditorMsg::RemoveNode(id.clone())));
-            row.add_suffix(&remove);
-
-            self.nodes.add(&row);
-            self.rows.push(row);
-        }
-
-        self.nodes.set_description(
-            self.members
-                .is_empty()
-                .then(|| t!("groups.no_nodes"))
-                .as_deref(),
-        );
-
-        self.subscriptions.set_description(Some(&t!(
-            "groups.subscription_count",
-            count = self.original.subscriptions.len()
-        )));
     }
 }
