@@ -1,7 +1,8 @@
 use super::{
     choice_list::ChoiceList, editor::EditorMsg, field_note::FieldNote, input_list::InputList,
+    interface_list::InterfaceList,
 };
-use crate::api::config::Config;
+use crate::api::config::{Config, Interface};
 use adw::prelude::*;
 use relm4::{Sender, adw, gtk};
 use rust_i18n::t;
@@ -20,8 +21,8 @@ pub struct Fields {
     so_mark_from_dae: adw::SpinRow,
     pprof_port: adw::SpinRow,
 
-    lan_interface: InputList,
-    wan_interface: InputList,
+    lan_interface: InterfaceList,
+    wan_interface: InterfaceList,
 
     auto_config_kernel_parameter: adw::SwitchRow,
     auto_config_firewall_rule: adw::SwitchRow,
@@ -114,8 +115,8 @@ impl Fields {
 
         let group = adw::PreferencesGroup::new();
 
-        let lan_interface = InputList::new("lan_interface", false, false, sender);
-        let wan_interface = InputList::new("wan_interface", false, false, sender);
+        let lan_interface = InterfaceList::new("lan_interface");
+        let wan_interface = InterfaceList::new("wan_interface");
 
         let auto_config_kernel_parameter = adw::SwitchRow::new();
         group.add(&auto_config_kernel_parameter);
@@ -142,8 +143,8 @@ impl Fields {
         page.add(&group);
 
         groups.push(("config.interfaces", group));
-        page.add(lan_interface.group());
-        page.add(wan_interface.group());
+        page.add(&lan_interface.group);
+        page.add(&wan_interface.group);
 
         let group = adw::PreferencesGroup::new();
 
@@ -440,6 +441,18 @@ impl Fields {
         fields
     }
 
+    pub fn populate_interfaces(
+        &mut self,
+        interfaces: &[Interface],
+        config: &Config,
+        sender: &Sender<EditorMsg>,
+    ) {
+        self.lan_interface
+            .populate(interfaces, &config.global.lan_interface, sender);
+        self.wan_interface
+            .populate(interfaces, &config.global.wan_interface, sender);
+    }
+
     pub fn load(&self, config: &Config) {
         self.name.set_text(&config.name);
 
@@ -595,21 +608,16 @@ impl Fields {
             }
         });
 
-        [
-            &self.lan_interface,
-            &self.wan_interface,
-            &self.tcp_check_url,
-            &self.udp_check_dns,
-        ]
-        .iter()
-        .for_each(|list| {
-            if !list.validate() {
-                if valid && focus {
-                    list.focus_error();
+        [&self.tcp_check_url, &self.udp_check_dns]
+            .iter()
+            .for_each(|list| {
+                if !list.validate() {
+                    if valid && focus {
+                        list.focus_error();
+                    }
+                    valid = false;
                 }
-                valid = false;
-            }
-        });
+            });
 
         valid
     }
@@ -619,19 +627,16 @@ impl Fields {
             note.clear_error();
         });
 
-        [
-            &self.lan_interface,
-            &self.wan_interface,
-            &self.tcp_check_url,
-            &self.udp_check_dns,
-        ]
-        .iter()
-        .for_each(|list| {
-            list.clear_errors();
-        });
+        [&self.tcp_check_url, &self.udp_check_dns]
+            .iter()
+            .for_each(|list| {
+                list.clear_errors();
+            });
     }
 
     pub fn update_conditions(&self) {
+        self.lan_interface.update_summary();
+        self.wan_interface.update_summary();
         self.utls_imitate
             .set_sensitive(self.tls_implementation.value() == "utls");
 

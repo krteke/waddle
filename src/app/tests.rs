@@ -69,7 +69,7 @@ fn click_icon(root: &impl IsA<gtk::Widget>, icon: &str) {
     button.emit_clicked();
 }
 
-fn fill(dialog: &adw::Dialog, title: &str, value: &str) {
+fn fill(dialog: &impl IsA<gtk::Widget>, title: &str, value: &str) {
     if let Some(row) = find_widget::<adw::EntryRow>(dialog, &|row| row.title() == title) {
         row.set_text(value);
     } else {

@@ -4,7 +4,10 @@ use rust_i18n::t;
 
 use super::fields::Fields;
 use crate::{
-    api::{Api, config::Config},
+    api::{
+        Api,
+        config::{Config, Interface},
+    },
     error::ApiError,
     ui::error_dialog::DialogExt,
 };
@@ -15,18 +18,21 @@ pub struct Editor {
     original: Option<Config>,
     fields: Fields,
     busy: bool,
+    loaded: bool,
     dirty: bool,
     submitted: bool,
     error: Option<ApiError>,
     error_dialog: adw::AlertDialog,
+    discard_dialog: adw::AlertDialog,
 }
 
 #[derive(Debug)]
 pub enum EditorMsg {
-    LoadDefaults,
+    Load,
     Save,
     Reset,
-    Cancel,
+    Back,
+    Discard,
     Changed,
     ShowError,
     Retranslate,
@@ -41,7 +47,7 @@ pub enum EditorOutput {
 
 #[derive(Debug)]
 pub enum EditorReply {
-    Defaults(Result<Box<Config>, ApiError>),
+    Loaded(Result<(Box<Config>, Vec<Interface>), ApiError>),
     Saved(Result<(), ApiError>),
 }
 
@@ -53,38 +59,38 @@ impl Component for Editor {
     type CommandOutput = EditorReply;
 
     view! {
-        #[name = "dialog"]
-        adw::Dialog {
-            set_content_width: 720,
-            set_content_height: 720,
+        adw::NavigationPage {
+            set_tag: Some("config-editor"),
             #[watch]
             set_title: if model.creating { t!("config.new_title") } else { t!("config.edit") }.as_ref(),
             #[watch]
-            set_can_close: !model.busy || model.original.is_none(),
+            set_can_pop: (!model.busy || !model.loaded) && !model.dirty,
             #[wrap(Some)]
             set_child = &adw::ToolbarView {
                 add_top_bar = &adw::HeaderBar {
                     set_show_start_title_buttons: false,
                     set_show_end_title_buttons: false,
+                    set_show_back_button: false,
                     pack_start = &gtk::Button {
                         #[watch]
-                        set_label: t!("dialog.cancel").as_ref(),
+                        set_tooltip_text: Some(t!("config.back").as_ref()),
+                        set_icon_name: "go-previous-symbolic",
                         #[watch]
-                        set_sensitive: !model.busy || model.original.is_none(),
-                        connect_clicked => EditorMsg::Cancel,
+                        set_sensitive: !model.busy || !model.loaded,
+                        connect_clicked => EditorMsg::Back,
                     },
                     pack_end = &gtk::Button {
                         add_css_class: "suggested-action",
                         #[watch]
                         set_label: t!("dialog.save").as_ref(),
                         #[watch]
-                        set_sensitive: !model.busy && model.original.is_some(),
+                        set_sensitive: !model.busy && model.loaded && (model.creating || model.dirty),
                         connect_clicked => EditorMsg::Save,
                     },
                 },
                 add_top_bar = &adw::Banner {
                     #[watch]
-                    set_title: if model.original.is_none() { t!("config.defaults_error") } else { t!("config.save_error") }.as_ref(),
+                    set_title: if !model.loaded { t!("config.editor_load_error") } else { t!("config.save_error") }.as_ref(),
                     #[watch]
                     set_revealed: model.error.is_some(),
                     #[watch]
@@ -97,9 +103,9 @@ impl Component for Editor {
                     page -> adw::PreferencesPage {
                         set_vexpand: true,
                         #[watch]
-                        set_sensitive: !model.busy,
+                        set_sensitive: !model.busy && model.loaded,
                         #[watch]
-                        set_visible: model.original.is_some(),
+                        set_visible: model.loaded,
                     },
                     gtk::Spinner {
                         set_halign: gtk::Align::Center,
@@ -108,19 +114,19 @@ impl Component for Editor {
                         #[watch]
                         set_spinning: model.busy,
                         #[watch]
-                        set_visible: model.original.is_none() && model.busy,
+                        set_visible: !model.loaded && model.busy,
                     },
                     adw::StatusPage {
                         set_icon_name: Some("dialog-warning-symbolic"),
                         #[watch]
-                        set_title: t!("config.defaults_error").as_ref(),
+                        set_title: t!("config.editor_load_error").as_ref(),
                         #[watch]
-                        set_visible: model.original.is_none() && !model.busy,
+                        set_visible: !model.loaded && !model.busy,
                         gtk::Button {
                             set_halign: gtk::Align::Center,
                             #[watch]
                             set_label: t!("auth.retry").as_ref(),
-                            connect_clicked => EditorMsg::LoadDefaults,
+                            connect_clicked => EditorMsg::Load,
                         },
                     },
                 },
@@ -138,7 +144,7 @@ impl Component for Editor {
                         #[watch]
                         set_spinning: model.busy,
                         #[watch]
-                        set_visible: model.busy && model.original.is_some(),
+                        set_visible: model.busy && model.loaded,
                     },
                 },
             },
@@ -152,42 +158,39 @@ impl Component for Editor {
     ) -> ComponentParts<Self> {
         let fields = Fields::new(sender.input_sender());
 
-        if let Some(config) = &config {
-            fields.load(config);
-            fields.update_conditions();
-        }
-
         let error_dialog = adw::AlertDialog::new(None, None);
 
         error_dialog.add_response("close", t!("dialog.close").as_ref());
         error_dialog.set_close_response("close");
+
+        let discard_dialog = adw::AlertDialog::new(None, None);
+        discard_dialog.add_response("cancel", t!("dialog.cancel").as_ref());
+        discard_dialog.add_response("discard", t!("config.discard").as_ref());
+        discard_dialog.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
+        discard_dialog.set_default_response(Some("cancel"));
+        discard_dialog.set_close_response("cancel");
+        let input = sender.input_sender().clone();
+        discard_dialog
+            .connect_response(Some("discard"), move |_, _| input.emit(EditorMsg::Discard));
 
         let model = Self {
             api,
             creating: config.is_none(),
             original: config,
             fields,
-            busy: false,
+            busy: true,
+            loaded: false,
             dirty: false,
             submitted: false,
             error: None,
             error_dialog,
+            discard_dialog,
         };
 
         let page = &model.fields.page;
         let widgets = view_output!();
 
-        root.connect_closed({
-            let sender = sender.clone();
-
-            move |_| {
-                let _ = sender.output(EditorOutput::Closed);
-            }
-        });
-
-        if model.creating {
-            sender.input(EditorMsg::LoadDefaults);
-        }
+        sender.input(EditorMsg::Load);
 
         ComponentParts { model, widgets }
     }
@@ -197,18 +200,29 @@ impl Component for Editor {
             EditorMsg::Changed => {
                 self.fields.update_conditions();
 
-                self.dirty = self
-                    .original
-                    .as_ref()
-                    .is_some_and(|original| self.fields.read(original).as_ref() != Some(original));
+                self.dirty = self.loaded
+                    && self.original.as_ref().is_some_and(|original| {
+                        self.fields.read(original).as_ref() != Some(original)
+                    });
 
                 if self.submitted {
                     self.fields.validate(false);
                 }
             }
             EditorMsg::Retranslate => self.fields.retranslate(),
-            EditorMsg::Cancel => {
-                root.close();
+            EditorMsg::Back if self.dirty => {
+                self.discard_dialog
+                    .set_heading(Some(t!("config.discard_title").as_ref()));
+                self.discard_dialog
+                    .set_body(t!("config.discard_hint").as_ref());
+                self.discard_dialog
+                    .set_response_label("cancel", t!("dialog.cancel").as_ref());
+                self.discard_dialog
+                    .set_response_label("discard", t!("config.discard").as_ref());
+                self.discard_dialog.present(Some(root));
+            }
+            EditorMsg::Back | EditorMsg::Discard => {
+                sender.output(EditorOutput::Closed).unwrap();
             }
             EditorMsg::Reset => {
                 self.fields.load(self.original.as_ref().unwrap());
@@ -218,14 +232,25 @@ impl Component for Editor {
                 self.fields.clear_errors();
             }
             EditorMsg::ShowError => self.show_error(root),
-            EditorMsg::LoadDefaults => {
+            EditorMsg::Load => {
                 self.busy = true;
                 self.error = None;
 
                 let api = self.api.clone();
 
+                let original = self.original.clone();
                 sender.oneshot_command(async move {
-                    EditorReply::Defaults(api.default_config().await.map(Box::new))
+                    EditorReply::Loaded(
+                        async {
+                            let config = match original {
+                                Some(config) => config,
+                                None => api.default_config().await?,
+                            };
+                            let interfaces = api.interfaces().await?;
+                            Ok((Box::new(config), interfaces))
+                        }
+                        .await,
+                    )
                 });
             }
             EditorMsg::Save => {
@@ -260,14 +285,17 @@ impl Component for Editor {
         self.busy = false;
 
         match reply {
-            EditorReply::Defaults(Ok(config)) => {
+            EditorReply::Loaded(Ok((config, interfaces))) => {
+                self.fields
+                    .populate_interfaces(&interfaces, &config, sender.input_sender());
                 self.fields.load(&config);
                 self.original = Some(*config);
+                self.loaded = true;
             }
             EditorReply::Saved(Ok(())) => {
                 sender.output(EditorOutput::Saved).unwrap();
             }
-            EditorReply::Defaults(Err(error)) | EditorReply::Saved(Err(error)) => {
+            EditorReply::Loaded(Err(error)) | EditorReply::Saved(Err(error)) => {
                 tracing::warn!(endpoint = %self.api.endpoint(), %error, "Config editor request failed");
 
                 if matches!(error, ApiError::Unauthorized) {
@@ -280,22 +308,22 @@ impl Component for Editor {
         }
     }
 
-    fn shutdown(&mut self, widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
+    fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
         if self.error_dialog.parent().is_some() {
             self.error_dialog.force_close();
         }
 
-        if widgets.dialog.parent().is_some() {
-            widgets.dialog.force_close();
+        if self.discard_dialog.parent().is_some() {
+            self.discard_dialog.force_close();
         }
     }
 }
 
 impl Editor {
-    fn show_error(&self, parent: &adw::Dialog) {
+    fn show_error(&self, parent: &adw::NavigationPage) {
         if let Some(error) = &self.error {
-            let heading = if self.original.is_none() {
-                t!("config.defaults_error")
+            let heading = if !self.loaded {
+                t!("config.editor_load_error")
             } else {
                 t!("config.save_error")
             };

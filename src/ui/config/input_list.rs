@@ -92,7 +92,7 @@ impl InputList {
     }
 
     pub fn load(&self, values: &[String]) {
-        self.0.items.borrow_mut().iter().for_each(|item| {
+        self.0.items.borrow_mut().drain(..).for_each(|item| {
             self.0.group.remove(&item.entry);
             self.0.group.remove(&item.error);
         });

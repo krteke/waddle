@@ -7,8 +7,7 @@ pub fn create_and_edit(
     page: &adw::NavigationPage,
 ) {
     click_icon(page, "list-add-symbolic");
-    wait_for(|| window.visible_dialog().is_some());
-    let editor = window.visible_dialog().unwrap();
+    let editor = editor_page(window);
     wait_for(|| {
         find_widget::<adw::EntryRow>(&editor, &|r| {
             r.tooltip_text().as_deref() == Some("Name") && r.is_sensitive()
@@ -21,6 +20,22 @@ pub fn create_and_edit(
         json!({}),
     ));
     let defaults = &defaults["defaultConfig"]["global"];
+    let lan = find_widget::<adw::ExpanderRow>(&editor, &|r| r.title() == "LAN Interfaces")
+        .expect("LAN interfaces must be selectable from the backend interface list");
+    lan.set_expanded(true);
+    let loopback = find_widget::<adw::ActionRow>(&lan, &|r| r.title() == "lo").unwrap();
+    assert!(loopback.subtitle().unwrap().contains("127.0.0.1/8"));
+    let selected = find_widget::<gtk::CheckButton>(&loopback, &|_| true).unwrap();
+    assert!(!selected.is_active());
+    selected.set_active(true);
+    wait_for(|| {
+        find_widget::<gtk::Button>(&editor, &|b| b.label().as_deref() == Some("Reset"))
+            .unwrap()
+            .is_sensitive()
+    });
+    assert_eq!(lan.subtitle(), "lo");
+    click(&editor, "Reset");
+    wait_for(|| !selected.is_active());
     let interval_row =
         find_widget::<adw::EntryRow>(&editor, &|row| row.title().starts_with("Check Interval"))
             .unwrap();
@@ -67,8 +82,23 @@ pub fn create_and_edit(
     );
     required_fields_block_save(&editor, window);
     lists_support_ordering(&editor, window);
-    click(&editor, "Cancel");
+    fill(&editor, "Name", "Discarded");
+    wait_for(|| !editor.can_pop());
+    click_icon(&editor, "go-previous-symbolic");
+    wait_for(|| window.visible_dialog().is_some());
+    click(&window.visible_dialog().unwrap(), "Cancel");
     wait_for(|| window.visible_dialog().is_none());
+    assert!(editor.is_mapped());
+    assert_eq!(
+        find_widget::<adw::EntryRow>(&editor, &|r| r.tooltip_text().as_deref() == Some("Name"))
+            .unwrap()
+            .text(),
+        "Discarded"
+    );
+    click_icon(&editor, "go-previous-symbolic");
+    wait_for(|| window.visible_dialog().is_some());
+    click(&window.visible_dialog().unwrap(), "Discard");
+    wait_for(|| page.is_mapped());
     let saved = runtime.block_on(request(wing, "{configs {name}}", json!({})));
     assert!(
         !saved["configs"]
@@ -79,8 +109,7 @@ pub fn create_and_edit(
     );
 
     click_icon(page, "list-add-symbolic");
-    wait_for(|| window.visible_dialog().is_some());
-    let editor = window.visible_dialog().unwrap();
+    let editor = editor_page(window);
     wait_for(|| {
         find_widget::<adw::EntryRow>(&editor, &|r| {
             r.tooltip_text().as_deref() == Some("Name") && r.is_sensitive()
@@ -91,7 +120,7 @@ pub fn create_and_edit(
     capture(window, "config-add");
     capture_themes(&editor, window, "checks");
     click(&editor, "Save");
-    wait_for(|| window.visible_dialog().is_none());
+    wait_for(|| page.is_mapped());
     wait_for(|| {
         find_widget::<adw::ActionRow>(page, &|r| r.title() == "Created from defaults").is_some()
     });
@@ -114,13 +143,18 @@ pub fn create_and_edit(
     let row =
         find_widget::<adw::ActionRow>(page, &|r| r.title() == "Created from defaults").unwrap();
     click_icon(&row, "document-edit-symbolic");
-    wait_for(|| window.visible_dialog().is_some());
-    let editor = window.visible_dialog().unwrap();
+    let editor = editor_page(window);
     assert_eq!(
         find_widget::<adw::EntryRow>(&editor, &|r| r.tooltip_text().as_deref() == Some("Name"))
             .unwrap()
             .text(),
         "Created from defaults"
+    );
+    assert!(
+        !find_widget::<gtk::Button>(&editor, &|b| b.label().as_deref() == Some("Save"))
+            .unwrap()
+            .is_sensitive(),
+        "unchanged configuration must not offer Save"
     );
     fill(&editor, "Name", "Edited config");
     find_widget::<adw::SpinRow>(&editor, &|r| {
@@ -135,6 +169,12 @@ pub fn create_and_edit(
     .unwrap()
     .set_active(protect);
     fill(&editor, "Check Interval", "not-a-duration");
+    wait_for(|| {
+        find_widget::<gtk::Button>(&editor, &|b| {
+            b.label().as_deref() == Some("Save") && b.is_sensitive()
+        })
+        .is_some()
+    });
     click(&editor, "Save");
     wait_for(|| {
         window
@@ -155,11 +195,8 @@ pub fn create_and_edit(
     .text();
     assert!(error_text.contains("not-a-duration"), "{error_text}");
     click(&error, "Close");
-    wait_for(|| {
-        window
-            .visible_dialog()
-            .is_some_and(|d| !d.is::<adw::AlertDialog>())
-    });
+    wait_for(|| window.visible_dialog().is_none());
+    assert!(editor.is_mapped());
     assert_eq!(
         find_widget::<adw::EntryRow>(&editor, &|r| r.tooltip_text().as_deref() == Some("Name"))
             .unwrap()
@@ -182,11 +219,27 @@ pub fn create_and_edit(
     wait_for(|| window.width() == 900);
     language(window, "en");
     wait_for(|| editor.title() == "Edit Configuration");
-    let lan = input_list(&editor, "LAN Interfaces");
-    click_icon(&lan, "list-add-symbolic");
-    list_entry(&lan, 1).set_text("br0");
-    click_icon(&lan, "list-add-symbolic");
-    list_entry(&lan, 2).set_text("eth1");
+    let lan = find_widget::<adw::ExpanderRow>(&editor, &|r| r.title() == "LAN Interfaces").unwrap();
+    lan.set_expanded(true);
+    let loopback = find_widget::<adw::ActionRow>(&lan, &|r| r.title() == "lo").unwrap();
+    adw::prelude::ActionRowExt::activate(&loopback);
+    let wan = find_widget::<adw::ExpanderRow>(&editor, &|r| r.title() == "WAN Interfaces").unwrap();
+    wan.set_expanded(true);
+    let automatic = find_widget::<adw::ActionRow>(&wan, &|r| r.title() == "auto").unwrap();
+    let automatic = find_widget::<gtk::CheckButton>(&automatic, &|_| true).unwrap();
+    assert_eq!(
+        automatic.is_active(),
+        defaults["wanInterface"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("auto"))
+    );
+    automatic.set_active(true);
+    let loopback = find_widget::<adw::ActionRow>(&wan, &|r| r.title() == "lo").unwrap();
+    adw::prelude::ActionRowExt::activate(&loopback);
+    wait_for(|| wan.subtitle() == "auto, lo");
+    capture_interface_themes(&lan, window);
+
     let tcp = input_list(&editor, "TCP Check URLs");
     let source = find_widget::<gtk::Button>(&list_entry(&tcp, 3), &|image| {
         image.icon_name().as_deref() == Some("list-drag-handle-symbolic")
@@ -212,7 +265,7 @@ pub fn create_and_edit(
     );
     capture(window, "config-edit");
     click(&editor, "Save");
-    wait_for(|| window.visible_dialog().is_none());
+    wait_for(|| page.is_mapped());
     wait_for(|| find_widget::<adw::ActionRow>(page, &|r| r.title() == "Edited config").is_some());
     let saved = runtime.block_on(request(
         wing,
@@ -229,7 +282,8 @@ pub fn create_and_edit(
     expected["tproxyPort"] = json!(24567);
     expected["tproxyPortProtect"] = json!(protect);
     expected["checkInterval"] = json!("42s");
-    expected["lanInterface"] = json!(["br0", "eth1"]);
+    expected["lanInterface"] = json!(["lo"]);
+    expected["wanInterface"] = json!(["auto", "lo"]);
     expected["tcpCheckUrl"] = json!([
         "http://cp.cloudflare.com",
         "2606:4700:4700::1111",
@@ -250,6 +304,47 @@ pub fn create_and_edit(
             .count(),
         1
     );
+
+    let row = find_widget::<adw::ActionRow>(page, &|r| r.title() == "Edited config").unwrap();
+    click_icon(&row, "document-edit-symbolic");
+    let editor = editor_page(window);
+    let wan = find_widget::<adw::ExpanderRow>(&editor, &|r| r.title() == "WAN Interfaces").unwrap();
+    assert_eq!(wan.subtitle(), "auto, lo");
+    wan.set_expanded(true);
+    let loopback = find_widget::<adw::ActionRow>(&wan, &|r| r.title() == "lo").unwrap();
+    let selected = find_widget::<gtk::CheckButton>(&loopback, &|_| true).unwrap();
+    assert!(selected.is_active());
+    selected.set_active(false);
+    wait_for(|| wan.subtitle() == "auto");
+    click(&editor, "Reset");
+    wait_for(|| selected.is_active() && editor.can_pop());
+    assert_eq!(wan.subtitle(), "auto, lo");
+    click_icon(&editor, "go-previous-symbolic");
+    wait_for(|| page.is_mapped());
+}
+
+fn capture_interface_themes(row: &adw::ExpanderRow, window: &adw::ApplicationWindow) {
+    let manager = adw::StyleManager::default();
+    let original = manager.color_scheme();
+    for (scheme, name) in [
+        (adw::ColorScheme::ForceLight, "light"),
+        (adw::ColorScheme::ForceDark, "dark"),
+    ] {
+        manager.set_color_scheme(scheme);
+        let changed = std::time::Instant::now();
+        wait_for(|| changed.elapsed() >= std::time::Duration::from_millis(300));
+        scroll_to(row);
+        capture(window, &format!("config-interfaces-{name}"));
+        window.set_default_size(460, 640);
+        wait_for(|| window.width() == 460);
+        let resized = std::time::Instant::now();
+        wait_for(|| resized.elapsed() >= std::time::Duration::from_millis(300));
+        scroll_to(row);
+        capture(window, &format!("config-interfaces-narrow-{name}"));
+        window.set_default_size(900, 640);
+        wait_for(|| window.width() == 900);
+    }
+    manager.set_color_scheme(original);
 }
 
 fn drop_target(entry: &adw::EntryRow) -> gtk::DropTarget {
@@ -265,7 +360,7 @@ fn drop_target(entry: &adw::EntryRow) -> gtk::DropTarget {
     }
 }
 
-fn input_list(editor: &adw::Dialog, title: &str) -> adw::PreferencesGroup {
+fn input_list(editor: &adw::NavigationPage, title: &str) -> adw::PreferencesGroup {
     find_widget::<adw::PreferencesGroup>(editor, &|group| group.title() == title).unwrap()
 }
 
@@ -285,7 +380,7 @@ fn item_menu(entry: &adw::EntryRow) -> gtk::Popover {
     popover
 }
 
-fn required_fields_block_save(editor: &adw::Dialog, window: &adw::ApplicationWindow) {
+fn required_fields_block_save(editor: &adw::NavigationPage, window: &adw::ApplicationWindow) {
     click(editor, "Save");
     let name =
         find_widget::<adw::EntryRow>(editor, &|r| r.tooltip_text().as_deref() == Some("Name"))
@@ -313,13 +408,15 @@ fn required_fields_block_save(editor: &adw::Dialog, window: &adw::ApplicationWin
         click(&item_menu(&entry), "Remove");
     }
     click(editor, "Save");
-    wait_for(|| {
-        find_widget::<gtk::Label>(&tcp, &|l| {
-            l.is_visible() && l.text() == "This field is required."
-        })
-        .is_some()
-    });
-    assert_eq!(window.visible_dialog().as_ref(), Some(editor));
+    let required_error =
+        find_widget::<gtk::Label>(&tcp, &|l| l.text() == "This field is required.").unwrap();
+    wait_for(|| required_error.get_visible());
+    assert!(
+        required_error.is_visible(),
+        "empty required list must display its error"
+    );
+    assert!(window.visible_dialog().is_none());
+    assert!(editor.is_mapped());
     click_icon(&tcp, "list-add-symbolic");
     let entry = list_entry(&tcp, 1);
     entry.set_text("   ");
@@ -336,7 +433,8 @@ fn required_fields_block_save(editor: &adw::Dialog, window: &adw::ApplicationWin
     list_entry(&udp, 1).set_text("");
     click(editor, "Save");
     wait_for(|| list_entry(&udp, 1).has_css_class("error"));
-    assert_eq!(window.visible_dialog().as_ref(), Some(editor));
+    assert!(window.visible_dialog().is_none());
+    assert!(editor.is_mapped());
     click(editor, "Reset");
     wait_for(|| {
         !find_widget::<gtk::Button>(editor, &|b| b.label().as_deref() == Some("Reset"))
@@ -347,7 +445,7 @@ fn required_fields_block_save(editor: &adw::Dialog, window: &adw::ApplicationWin
     assert_eq!(list_entry(&tcp, 1).text(), "http://cp.cloudflare.com");
 }
 
-fn lists_support_ordering(editor: &adw::Dialog, window: &adw::ApplicationWindow) {
+fn lists_support_ordering(editor: &adw::NavigationPage, window: &adw::ApplicationWindow) {
     let tcp = input_list(editor, "TCP Check URLs");
     let first = list_entry(&tcp, 1);
     click(&item_menu(&first), "Move Down");
@@ -391,7 +489,7 @@ fn lists_support_ordering(editor: &adw::Dialog, window: &adw::ApplicationWindow)
     });
 }
 
-fn capture_themes(editor: &adw::Dialog, window: &adw::ApplicationWindow, state: &str) {
+fn capture_themes(editor: &adw::NavigationPage, window: &adw::ApplicationWindow, state: &str) {
     let manager = adw::StyleManager::default();
     let original = manager.color_scheme();
     let checks = find_widget::<adw::PreferencesGroup>(editor, &|group| {
@@ -461,4 +559,26 @@ fn scroll_to(widget: &impl IsA<gtk::Widget>) {
         .unwrap();
     let adjustment = scroll.vadjustment();
     adjustment.set_value(adjustment.value() + bounds.y() as f64);
+}
+
+pub(super) fn editor_page(window: &adw::ApplicationWindow) -> adw::NavigationPage {
+    wait_for(|| {
+        find_widget::<adw::NavigationPage>(window, &|p| {
+            p.tag().as_deref() == Some("config-editor")
+                && p.is_mapped()
+                && find_widget::<adw::PreferencesPage>(p, &|page| {
+                    page.is_visible() && page.is_sensitive()
+                })
+                .is_some()
+        })
+        .is_some()
+    });
+    assert!(
+        window.visible_dialog().is_none(),
+        "Config editor must not open a dialog"
+    );
+    find_widget::<adw::NavigationPage>(window, &|p| {
+        p.tag().as_deref() == Some("config-editor") && p.is_mapped()
+    })
+    .unwrap()
 }

@@ -1,0 +1,8 @@
+query Interfaces {
+  general {
+    interfaces {
+      name
+      ip
+    }
+  }
+}

@@ -13,6 +13,16 @@ struct Configs;
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "schema/schema.graphql",
+    query_path = "graphql/queries/interfaces.graphql",
+    response_derives = "Debug, Clone"
+)]
+struct Interfaces;
+
+pub use interfaces::InterfacesGeneralInterfaces as Interface;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema/schema.graphql",
     query_path = "graphql/queries/select_config.graphql"
 )]
 struct SelectConfig;
@@ -57,6 +67,14 @@ struct RemoveConfig;
 pub use configs::ConfigsConfigs as Config;
 
 impl Api {
+    pub async fn interfaces(&self) -> Result<Vec<Interface>, ApiError> {
+        Ok(self
+            .execute::<Interfaces>(interfaces::Variables {})
+            .await?
+            .general
+            .interfaces)
+    }
+
     pub async fn duplicate_config(&self, mut config: Config) -> Result<(), ApiError> {
         config.name = format!("{} (Copy)", config.name);
         self.save_config(config, None).await

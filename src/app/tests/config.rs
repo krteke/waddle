@@ -69,9 +69,10 @@ pub fn selection_and_details(
     capture(window, "config-list");
     let copy = find_widget::<adw::ActionRow>(&page, &|row| row.title() == "global (copy)").unwrap();
     click_icon(&copy, "document-edit-symbolic");
-    wait_for(|| window.visible_dialog().is_some());
-    click(&window.visible_dialog().unwrap(), "Cancel");
-    wait_for(|| window.visible_dialog().is_none());
+    let editor = editor::editor_page(window);
+    assert!(editor.can_pop());
+    click_icon(&editor, "go-previous-symbolic");
+    wait_for(|| page.is_mapped());
     let copy_menu = find_widget::<gtk::MenuButton>(&copy, &|_| true).unwrap();
     copy_menu.popup();
     let copy_popover = copy_menu.popover().unwrap();

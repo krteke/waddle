@@ -5,6 +5,7 @@ mod editor;
 mod field_note;
 mod fields;
 mod input_list;
+mod interface_list;
 
 use adw::prelude::*;
 use gtk::glib;
@@ -47,6 +48,7 @@ pub enum ConfigMsg {
     New,
     Edit(String),
     Editor(EditorOutput),
+    EditorPopped,
 }
 
 enum Operation {
@@ -72,6 +74,11 @@ impl Component for Configs {
 
     view! {
         adw::NavigationView {
+            connect_popped[sender] => move |_, page| {
+                if page.tag().as_deref() == Some("config-editor") {
+                    sender.input(ConfigMsg::EditorPopped);
+                }
+            },
             add = &adw::NavigationPage {
                 set_tag: Some("config-list"),
                 #[watch]
@@ -198,26 +205,28 @@ impl Component for Configs {
                     .launch((self.api.clone(), config))
                     .forward(sender.input_sender(), ConfigMsg::Editor);
 
-                editor.widget().present(Some(root));
+                root.push(editor.widget());
                 self.editor = Some(editor);
 
                 return;
             }
-            ConfigMsg::Editor(EditorOutput::Closed) => {
+            ConfigMsg::Editor(output) => {
+                self.editor.as_ref().unwrap().widget().set_can_pop(true);
+                root.pop();
+
+                match output {
+                    EditorOutput::Closed => return,
+                    EditorOutput::Unauthorized => {
+                        sender.output(()).unwrap();
+                        return;
+                    }
+                    EditorOutput::Saved => Operation::Refresh,
+                }
+            }
+            ConfigMsg::EditorPopped => {
                 self.editor.take();
 
                 return;
-            }
-            ConfigMsg::Editor(EditorOutput::Unauthorized) => {
-                self.editor.take();
-                sender.output(()).unwrap();
-
-                return;
-            }
-            ConfigMsg::Editor(EditorOutput::Saved) => {
-                self.editor.take();
-
-                Operation::Refresh
             }
             ConfigMsg::ShowRename(ref id) | ConfigMsg::ShowDelete(ref id) => {
                 let config = self.records.iter().find(|config| &config.id == id).unwrap();
