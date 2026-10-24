@@ -47,6 +47,7 @@ pub struct Workspace {
     pub configurations: gtk::Stack,
     pub nodes: gtk::Stack,
     pub groups: gtk::Stack,
+    pub routing: gtk::Stack,
     server_name: gtk::Label,
     server: gtk::MenuButton,
     server_menu: gtk::Popover,
@@ -115,6 +116,7 @@ impl Workspace {
         let configurations = gtk::Stack::new();
         let nodes = gtk::Stack::new();
         let groups = gtk::Stack::new();
+        let routing = gtk::Stack::new();
         let mut pages = Vec::new();
 
         PAGES.into_iter().for_each(|(name, _, icon, _)| {
@@ -138,6 +140,10 @@ impl Workspace {
                 "configurations" => {
                     configurations.add_named(&page, Some("placeholder"));
                     stack.add_named(&configurations, Some(name));
+                }
+                "routing" => {
+                    routing.add_named(&page, Some("placeholder"));
+                    stack.add_named(&routing, Some(name));
                 }
                 "groups" => {
                     groups.add_named(&page, Some("placeholder"));
@@ -276,6 +282,7 @@ impl Workspace {
             configurations,
             nodes,
             groups,
+            routing,
             server_name,
             server,
             server_menu: gtk::Popover::new(),

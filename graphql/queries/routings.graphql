@@ -1,0 +1,1 @@
+query Routings { routings { id name selected routing { string } } groups { name } }

@@ -1,0 +1,1 @@
+mutation CreateRouting($name: String!, $routing: String!) { createRouting(name: $name, routing: $routing) { id } }

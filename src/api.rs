@@ -10,6 +10,7 @@ pub mod config;
 pub mod group;
 pub mod node;
 pub mod overview;
+pub mod routing;
 
 #[derive(GraphQLQuery)]
 #[graphql(

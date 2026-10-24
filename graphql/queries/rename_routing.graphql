@@ -1,0 +1,1 @@
+mutation RenameRouting($id: ID!, $name: String!) { renameRouting(id: $id, name: $name) }

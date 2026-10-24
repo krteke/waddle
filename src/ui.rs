@@ -8,5 +8,6 @@ pub mod nodes;
 pub mod overview;
 pub mod proxy;
 mod qr_code;
+pub mod routing;
 pub mod server;
 pub mod workspace;

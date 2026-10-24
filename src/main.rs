@@ -7,6 +7,7 @@ mod credentials;
 mod error;
 mod i18n;
 mod node;
+mod routing;
 mod settings;
 mod ui;
 

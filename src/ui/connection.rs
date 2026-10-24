@@ -9,6 +9,7 @@ use super::{
     nodes::{NodeMsg, Nodes},
     overview::{Overview, OverviewMsg, OverviewOutput},
     proxy::{Proxy, ProxyMsg},
+    routing::{RoutingMsg, Routings},
 };
 use crate::{
     api::Api,
@@ -44,6 +45,8 @@ pub struct Connection {
     node_stack: gtk::Stack,
     groups: Option<Controller<Groups>>,
     group_stack: gtk::Stack,
+    routings: Option<Controller<Routings>>,
+    routing_stack: gtk::Stack,
 }
 
 #[derive(Debug)]
@@ -68,6 +71,7 @@ impl Component for Connection {
     type Init = (
         adw::ApplicationWindow,
         Server,
+        gtk::Stack,
         gtk::Stack,
         gtk::Stack,
         gtk::Stack,
@@ -143,7 +147,7 @@ impl Component for Connection {
     }
 
     fn init(
-        (parent, server, overview_stack, config_stack, node_stack, group_stack): Self::Init,
+        (parent, server, overview_stack, config_stack, node_stack, group_stack, routing_stack): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -173,6 +177,8 @@ impl Component for Connection {
             node_stack,
             groups: None,
             group_stack,
+            routings: None,
+            routing_stack,
         };
 
         let proxy_content = &model.proxy_content;
@@ -212,6 +218,10 @@ impl Component for Connection {
             }
 
             self.group_stack.set_visible_child_name("placeholder");
+            if let Some(routings) = self.routings.take() {
+                self.routing_stack.remove(routings.widget());
+            }
+            self.routing_stack.set_visible_child_name("placeholder");
         }
 
         match message {
@@ -250,6 +260,9 @@ impl Component for Connection {
             ConnectionMsg::Retranslate => {
                 if let Some(overview) = &self.overview {
                     overview.emit(OverviewMsg::Retranslate);
+                }
+                if let Some(routings) = &self.routings {
+                    routings.emit(RoutingMsg::Retranslate);
                 }
                 if let Some(groups) = &self.groups {
                     groups.emit(GroupMsg::Retranslate);
@@ -338,6 +351,12 @@ impl Component for Connection {
                 self.group_stack.add_child(groups.widget());
                 self.group_stack.set_visible_child(groups.widget());
                 self.groups = Some(groups);
+                let routings = Routings::builder()
+                    .launch(api.clone())
+                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+                self.routing_stack.add_child(routings.widget());
+                self.routing_stack.set_visible_child(routings.widget());
+                self.routings = Some(routings);
 
                 self.phase = Phase::Connected { api, username };
                 self.error = warning;
@@ -388,5 +407,9 @@ impl Component for Connection {
         }
 
         self.group_stack.set_visible_child_name("placeholder");
+        if let Some(routings) = self.routings.take() {
+            self.routing_stack.remove(routings.widget());
+        }
+        self.routing_stack.set_visible_child_name("placeholder");
     }
 }

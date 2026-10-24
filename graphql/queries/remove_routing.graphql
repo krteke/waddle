@@ -1,0 +1,1 @@
+mutation RemoveRouting($id: ID!) { removeRouting(id: $id) }

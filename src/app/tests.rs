@@ -17,6 +17,7 @@ mod node_share;
 mod nodes;
 mod overview;
 mod proxy;
+mod routing;
 
 fn find_widget<W: IsA<gtk::Widget>>(
     root: &impl IsA<gtk::Widget>,
@@ -335,6 +336,10 @@ fn server_management_and_authentication_lifecycle() {
         pages
             .child_by_name("routing")
             .unwrap()
+            .downcast::<gtk::Stack>()
+            .unwrap()
+            .visible_child()
+            .unwrap()
             .downcast::<adw::StatusPage>()
             .unwrap()
             .title(),
@@ -498,6 +503,7 @@ fn server_management_and_authentication_lifecycle() {
     language(window, "en");
     wait_for(|| connected(window, "Home"));
     overview::summary_follows_backend(&runtime, window, &home);
+    routing::manage(&runtime, window, &home);
     groups::manage_groups(&runtime, window, &home);
     nodes::add_and_list(&runtime, window, &home);
     config::selection_and_details(&runtime, window, &home);
