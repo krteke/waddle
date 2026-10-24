@@ -1,11 +1,11 @@
 use super::{
-    widgets::{Choice, Widgets},
+    widgets::{Segments, Widgets},
     *,
 };
 use crate::node::V2rayTls;
 
 pub struct TlsFields {
-    security: Choice,
+    security: Segments,
     tls: adw::PreferencesGroup,
     sni: adw::EntryRow,
     alpn: adw::EntryRow,
@@ -28,7 +28,7 @@ impl TlsFields {
             V2rayTls::Reality { .. } => 2,
         };
 
-        let security = w.selection(
+        let security = w.segmented(
             &group,
             "node_editor.security",
             &["", "TLS", "Reality"],

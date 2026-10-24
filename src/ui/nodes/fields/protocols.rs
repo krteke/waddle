@@ -2,7 +2,7 @@ use super::{
     plugin::PluginFields,
     tls::TlsFields,
     transport::{TransportFields, TrojanTransportFields},
-    widgets::{Choice, Widgets},
+    widgets::{Choice, Segments, Widgets},
     *,
 };
 use crate::node::*;
@@ -73,8 +73,8 @@ pub struct TuicFields {
     insecure: adw::SwitchRow,
     alpn: adw::EntryRow,
     disable_sni: adw::SwitchRow,
-    congestion_control: Choice,
-    udp_relay_mode: Choice,
+    congestion_control: Segments,
+    udp_relay_mode: Segments,
 }
 
 pub struct JuicityFields {
@@ -83,7 +83,7 @@ pub struct JuicityFields {
     sni: adw::EntryRow,
     insecure: adw::SwitchRow,
     pinned_certchain_sha256: adw::EntryRow,
-    congestion_control: Choice,
+    congestion_control: Segments,
 }
 
 pub struct Hysteria2Fields {
@@ -324,14 +324,14 @@ impl ProtocolFields {
 
                 let quic = w.group("quic");
 
-                let congestion_control = w.choice(
+                let congestion_control = w.segmented_choice(
                     &quic,
                     "node_editor.congestion_control",
                     &["", "bbr", "cubic"],
                     &node.congestion_control,
                 );
 
-                let udp_relay_mode = w.choice(
+                let udp_relay_mode = w.segmented_choice(
                     &quic,
                     "node_editor.udp_relay_mode",
                     &["", "native", "quic"],
@@ -374,7 +374,7 @@ impl ProtocolFields {
 
                 let quic = w.group("quic");
 
-                let congestion_control = w.choice(
+                let congestion_control = w.segmented_choice(
                     &quic,
                     "node_editor.congestion_control",
                     &["", "bbr", "cubic"],

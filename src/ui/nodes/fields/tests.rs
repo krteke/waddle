@@ -42,11 +42,17 @@ impl Form {
         .unwrap_or_else(|| panic!("missing visible entry {title}"))
     }
     fn select(&self, title: &str, index: u32) {
-        let row = find::<adw::ComboRow>(&self.fields.page, &|row| {
+        let row = find::<adw::ActionRow>(&self.fields.page, &|row| {
             row.title() == title && row.is_visible()
         })
         .unwrap();
-        row.set_selected(index);
+        if let Some(combo) = row.downcast_ref::<adw::ComboRow>() {
+            combo.set_selected(index);
+        } else {
+            find::<adw::ToggleGroup>(&row, &|_| true)
+                .unwrap()
+                .set_active(index);
+        }
         self.fields.update_visibility();
     }
 }
@@ -86,6 +92,15 @@ pub fn tls_switch_validates_only_active_branch() {
     let form = Form::from_link(
         "vless://b116693c-e4f4-4776-a80c-f310b03b36e0@example.com:443?security=tls&sni=tls.example.com&alpn=h2",
     );
+    let security_row =
+        find::<adw::ActionRow>(&form.fields.page, &|row| row.title() == "Security").unwrap();
+    let security = find::<adw::ToggleGroup>(&security_row, &|_| true)
+        .expect("short security choices should be directly selectable segments");
+    assert_eq!(
+        security.active(),
+        1,
+        "existing TLS configuration must preselect TLS"
+    );
     form.select("Security", 2);
     assert!(!form.fields.validate());
     assert!(form.entry("Reality public key").has_css_class("error"));
@@ -117,6 +132,11 @@ pub fn tls_switch_validates_only_active_branch() {
         panic!("expected VLESS")
     };
     assert_eq!(node.tls, V2rayTls::None);
+    rust_i18n::set_locale("zh_CN");
+    form.fields.retranslate();
+    assert_eq!(security.toggle(0).unwrap().label().as_deref(), Some("无"));
+    assert_eq!(security.active(), 0);
+    rust_i18n::set_locale("en");
 }
 
 pub fn plugin_switch_constructs_only_selected_plugin() {
@@ -238,6 +258,23 @@ pub fn inspect_transport_and_tls_forms(capture: impl Fn(&adw::ApplicationWindow,
         }
         scroll.vadjustment().set_value(scroll.vadjustment().upper());
         capture(&window, &format!("node-form-tcp-http-{name}"));
+    }
+    let tuic = Form::from_link(
+        "tuic://b116693c-e4f4-4776-a80c-f310b03b36e0:password@example.com:443?congestion_control=bbr&udp_relay_mode=quic",
+    );
+    window.set_content(Some(&tuic.fields.page));
+    window.set_default_size(400, 720);
+    let scroll = find::<gtk::ScrolledWindow>(&tuic.fields.page, &|_| true).unwrap();
+    for (name, scheme) in [
+        ("light", adw::ColorScheme::ForceLight),
+        ("dark", adw::ColorScheme::ForceDark),
+    ] {
+        manager.set_color_scheme(scheme);
+        while context.pending() {
+            context.iteration(false);
+        }
+        scroll.vadjustment().set_value(scroll.vadjustment().upper());
+        capture(&window, &format!("node-form-segments-narrow-{name}"));
     }
     manager.set_color_scheme(original);
     window.close();

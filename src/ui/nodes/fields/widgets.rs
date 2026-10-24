@@ -8,6 +8,7 @@ pub struct Widgets {
     groups: Vec<(&'static str, adw::PreferencesGroup)>,
     required: Vec<(adw::EntryRow, adw::ActionRow)>,
     choices: Vec<Choice>,
+    segments: Vec<Segments>,
     descriptions: Vec<(&'static str, adw::PreferencesGroup)>,
 }
 
@@ -26,6 +27,21 @@ impl Choice {
     }
 }
 
+pub struct Segments {
+    pub control: adw::ToggleGroup,
+    values: &'static [&'static str],
+}
+
+impl Segments {
+    pub fn text(&self) -> String {
+        self.values[self.selected() as usize].into()
+    }
+
+    pub fn selected(&self) -> u32 {
+        self.control.active()
+    }
+}
+
 impl Widgets {
     pub fn new(sender: &Sender<EditorMsg>) -> Self {
         Self {
@@ -35,6 +51,7 @@ impl Widgets {
             groups: vec![],
             required: vec![],
             choices: vec![],
+            segments: vec![],
             descriptions: vec![],
         }
     }
@@ -192,6 +209,59 @@ impl Widgets {
         Choice { row, values }
     }
 
+    pub fn segmented_choice(
+        &mut self,
+        group: &adw::PreferencesGroup,
+        label: &'static str,
+        values: &'static [&'static str],
+        value: &str,
+    ) -> Segments {
+        let selected = values
+            .iter()
+            .position(|v| *v == value)
+            .expect("domain value is a supported choice") as u32;
+
+        self.segmented(group, label, values, selected)
+    }
+
+    pub fn segmented(
+        &mut self,
+        group: &adw::PreferencesGroup,
+        label: &'static str,
+        values: &'static [&'static str],
+        selected: u32,
+    ) -> Segments {
+        let control = adw::ToggleGroup::builder()
+            .valign(gtk::Align::Center)
+            .build();
+
+        for value in values {
+            control.add(adw::Toggle::builder().label(*value).build());
+        }
+
+        control.set_active(selected);
+
+        let row = adw::ActionRow::new();
+
+        row.add_suffix(&control);
+        self.row(group, label, &row);
+
+        control.upcast_ref::<gtk::Widget>().update_relation(&[
+            gtk::accessible::Relation::LabelledBy(&[row.upcast_ref::<gtk::Widget>().upcast_ref()]),
+        ]);
+
+        let input = self.sender.clone();
+
+        control.connect_active_notify(move |_| input.emit(EditorMsg::Changed));
+
+        self.segments.push(Segments {
+            control: control.clone(),
+            values,
+        });
+
+        Segments { control, values }
+    }
+
     pub fn validate(&self) -> bool {
         let mut valid = true;
 
@@ -249,6 +319,16 @@ impl Widgets {
 
         for (_, error) in &self.required {
             error.set_title(&t!("config.required"));
+        }
+
+        for segments in &self.segments {
+            if let Some(index) = segments.values.iter().position(|v| v.is_empty()) {
+                segments
+                    .control
+                    .toggle(index as u32)
+                    .unwrap()
+                    .set_label(Some(&t!("node_editor.none")));
+            }
         }
 
         for choice in &self.choices {

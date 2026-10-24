@@ -1,5 +1,5 @@
 use super::{
-    widgets::{Choice, Widgets},
+    widgets::{Choice, Segments, Widgets},
     *,
 };
 use crate::node::{TcpHeader, Transport, TrojanTransport};
@@ -28,7 +28,7 @@ impl HostPath {
 pub struct TransportFields {
     network: Choice,
     tcp: adw::PreferencesGroup,
-    header: Choice,
+    header: Segments,
     tcp_http: HostPath,
     websocket: HostPath,
     h2: HostPath,
@@ -58,7 +58,7 @@ impl TransportFields {
 
         let tcp = w.group("");
 
-        let header = w.selection(
+        let header = w.segmented(
             &tcp,
             "node_editor.header_type",
             &["", "HTTP"],

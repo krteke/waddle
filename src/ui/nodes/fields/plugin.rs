@@ -1,5 +1,5 @@
 use super::{
-    widgets::{Choice, Widgets},
+    widgets::{Choice, Segments, Widgets},
     *,
 };
 use crate::node::Plugin;
@@ -7,14 +7,14 @@ use crate::node::Plugin;
 pub struct PluginFields {
     selection: Choice,
     obfs: adw::PreferencesGroup,
-    mode: Choice,
+    mode: Segments,
     obfs_host: adw::EntryRow,
     obfs_path: adw::EntryRow,
     v2ray: adw::PreferencesGroup,
     tls: adw::SwitchRow,
     host: adw::EntryRow,
     shadow: adw::PreferencesGroup,
-    version: Choice,
+    version: Segments,
     shadow_host: adw::EntryRow,
     password: adw::EntryRow,
 }
@@ -38,7 +38,7 @@ impl PluginFields {
 
         let obfs = w.group("");
 
-        let mode = w.choice(&obfs, "node_editor.obfs", &["http", "tls"], "http");
+        let mode = w.segmented_choice(&obfs, "node_editor.obfs", &["http", "tls"], "http");
         let obfs_host = w.entry(&obfs, "node_editor.http_host", "", false);
         let obfs_path = w.entry(&obfs, "node_editor.path", "", false);
 
@@ -49,7 +49,8 @@ impl PluginFields {
 
         let shadow = w.group("");
 
-        let version = w.choice(&shadow, "node_editor.shadowtls_version", &["2", "3"], "3");
+        let version =
+            w.segmented_choice(&shadow, "node_editor.shadowtls_version", &["2", "3"], "3");
         let shadow_host = w.entry(&shadow, "node_editor.http_host", "", false);
         let password = w.password(&shadow, "node_editor.password", "", true);
 
@@ -60,7 +61,7 @@ impl PluginFields {
                 host,
                 path,
             } => {
-                mode.row.set_selected(u32::from(m == "tls"));
+                mode.control.set_active(u32::from(m == "tls"));
                 obfs_host.set_text(host);
                 obfs_path.set_text(path);
             }
@@ -76,7 +77,7 @@ impl PluginFields {
                 host,
                 password: p,
             } => {
-                version.row.set_selected(u32::from(v == "3"));
+                version.control.set_active(u32::from(v == "3"));
                 shadow_host.set_text(host);
                 password.set_text(p);
             }
