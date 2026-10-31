@@ -3,6 +3,7 @@ use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
 
 use super::{
+    ServerEvent,
     config::{ConfigMsg, Configs},
     groups::{GroupMsg, Groups},
     login_dialog::LoginDialog,
@@ -56,6 +57,7 @@ pub enum ConnectionMsg {
     SignOut,
     Retranslate,
     RefreshSession,
+    Server(ServerEvent),
     Overview(OverviewOutput),
 }
 
@@ -278,7 +280,12 @@ impl Component for Connection {
                     proxy.emit(ProxyMsg::Retranslate);
                 }
             }
-            ConnectionMsg::RefreshSession => {
+            ConnectionMsg::Server(ServerEvent::Changed) => {
+                if let Some(proxy) = &self.proxy {
+                    proxy.emit(ProxyMsg::Refresh);
+                }
+            }
+            ConnectionMsg::Server(ServerEvent::Unauthorized) | ConnectionMsg::RefreshSession => {
                 sender.output(ConnectionOutput::Retry).unwrap();
             }
         }
@@ -330,7 +337,7 @@ impl Component for Connection {
 
                 let configs = Configs::builder()
                     .launch(api.clone())
-                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+                    .forward(sender.input_sender(), ConnectionMsg::Server);
 
                 self.config_stack.add_child(configs.widget());
                 self.config_stack.set_visible_child(configs.widget());
@@ -338,7 +345,7 @@ impl Component for Connection {
                 self.configs = Some(configs);
                 let nodes = Nodes::builder()
                     .launch(api.clone())
-                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+                    .forward(sender.input_sender(), ConnectionMsg::Server);
 
                 self.node_stack.add_child(nodes.widget());
                 self.node_stack.set_visible_child(nodes.widget());
@@ -346,14 +353,14 @@ impl Component for Connection {
 
                 let groups = Groups::builder()
                     .launch(api.clone())
-                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+                    .forward(sender.input_sender(), ConnectionMsg::Server);
 
                 self.group_stack.add_child(groups.widget());
                 self.group_stack.set_visible_child(groups.widget());
                 self.groups = Some(groups);
                 let routings = Routings::builder()
                     .launch(api.clone())
-                    .forward(sender.input_sender(), |()| ConnectionMsg::RefreshSession);
+                    .forward(sender.input_sender(), ConnectionMsg::Server);
                 self.routing_stack.add_child(routings.widget());
                 self.routing_stack.set_visible_child(routings.widget());
                 self.routings = Some(routings);

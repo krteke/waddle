@@ -1,3 +1,4 @@
+use super::ServerEvent;
 mod dialogs;
 mod editor;
 mod presets;
@@ -66,7 +67,7 @@ pub struct RoutingUpdate {
 impl Component for Routings {
     type Init = Api;
     type Input = RoutingMsg;
-    type Output = ();
+    type Output = ServerEvent;
     type CommandOutput = RoutingUpdate;
 
     view! {
@@ -207,7 +208,7 @@ impl Component for Routings {
                     return;
                 }
                 EditorOutput::Unauthorized => {
-                    sender.output(()).unwrap();
+                    sender.output(ServerEvent::Unauthorized).unwrap();
                     return;
                 }
                 EditorOutput::Saved => Operation::Refresh,
@@ -330,9 +331,12 @@ impl Component for Routings {
         }
 
         if unauthorized {
-            sender.output(()).unwrap();
-        } else if mutation_failed {
-            self.show_error(root);
+            sender.output(ServerEvent::Unauthorized).unwrap();
+        } else {
+            sender.output(ServerEvent::Changed).unwrap();
+            if mutation_failed {
+                self.show_error(root);
+            }
         }
     }
 

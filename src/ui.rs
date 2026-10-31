@@ -11,3 +11,9 @@ mod qr_code;
 pub mod routing;
 pub mod server;
 pub mod workspace;
+
+#[derive(Debug)]
+pub enum ServerEvent {
+    Changed,
+    Unauthorized,
+}

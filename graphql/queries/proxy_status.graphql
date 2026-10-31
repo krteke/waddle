@@ -2,6 +2,7 @@ query ProxyStatus {
   general {
     dae {
       running
+      modified
     }
   }
 }

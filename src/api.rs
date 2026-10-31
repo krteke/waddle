@@ -50,9 +50,12 @@ struct CurrentUser;
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "schema/schema.graphql",
-    query_path = "graphql/queries/proxy_status.graphql"
+    query_path = "graphql/queries/proxy_status.graphql",
+    response_derives = "Debug"
 )]
 struct ProxyStatus;
+
+pub use proxy_status::ProxyStatusGeneralDae as DaeStatus;
 
 #[derive(GraphQLQuery)]
 #[graphql(
@@ -141,13 +144,12 @@ impl Api {
             > 0)
     }
 
-    pub async fn proxy_running(&self) -> Result<bool, ApiError> {
+    pub async fn proxy_status(&self) -> Result<DaeStatus, ApiError> {
         Ok(self
             .execute::<ProxyStatus>(proxy_status::Variables {})
             .await?
             .general
-            .dae
-            .running)
+            .dae)
     }
 
     pub async fn set_proxy_running(&self, running: bool) -> Result<(), ApiError> {
@@ -222,14 +224,14 @@ mod tests {
                 assert!(!api.has_admin().await.unwrap());
                 let credentials = crate::credentials::Credentials::new("admin", "test-password-42");
                 let (session, _) = api.authenticate(&credentials, true).await.unwrap();
-                assert!(!session.proxy_running().await.unwrap());
+                assert!(!session.proxy_status().await.unwrap().running);
                 session.set_proxy_running(false).await.unwrap();
-                assert!(!session.proxy_running().await.unwrap());
+                assert!(!session.proxy_status().await.unwrap().running);
                 assert!(matches!(
                     session.set_proxy_running(true).await,
                     Err(ApiError::Graphql(_))
                 ));
-                assert!(!session.proxy_running().await.unwrap());
+                assert!(!session.proxy_status().await.unwrap().running);
                 assert_eq!(session.current_user().await.unwrap(), "admin");
                 assert!(api.has_admin().await.unwrap());
                 assert!(matches!(

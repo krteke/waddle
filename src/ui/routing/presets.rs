@@ -275,7 +275,18 @@ impl Presets {
         let mut valid = self.targets.get(self.target.selected() as usize).is_some();
 
         for (entry, error) in &self.entries {
-            let invalid = self.mac_enabled.is_active() && !entry.text().trim().is_empty();
+            let text = entry.text();
+            let address = text.trim();
+            let invalid = self.mac_enabled.is_active()
+                && !address.is_empty()
+                && (address.len() != 17
+                    || !address.bytes().enumerate().all(|(i, byte)| {
+                        if i % 3 == 2 {
+                            byte == b':'
+                        } else {
+                            byte.is_ascii_hexdigit()
+                        }
+                    }));
 
             error.set_visible(invalid);
 

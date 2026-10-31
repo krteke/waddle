@@ -1,3 +1,4 @@
+use super::ServerEvent;
 mod add;
 mod editor;
 pub mod fields;
@@ -28,6 +29,7 @@ pub struct Nodes {
     group: adw::PreferencesGroup,
     rows: Vec<NodeRow>,
     busy: bool,
+    testing: bool,
     error: Option<(&'static str, ApiError)>,
     error_dialog: adw::AlertDialog,
     add: Option<Controller<AddNodes>>,
@@ -63,7 +65,7 @@ pub enum NodeCommand {
 impl Component for Nodes {
     type Init = Api;
     type Input = NodeMsg;
-    type Output = ();
+    type Output = ServerEvent;
     type CommandOutput = NodeCommand;
 
     view! {
@@ -111,15 +113,15 @@ impl Component for Nodes {
                                     },
                                     gtk::Spinner {
                                         #[watch]
-                                        set_spinning: model.busy,
+                                        set_spinning: model.busy || model.testing,
                                         #[watch]
-                                        set_visible: model.busy,
+                                        set_visible: model.busy || model.testing,
                                     },
                                     gtk::Button {
                                         set_icon_name: "network-transmit-receive-symbolic",
                                         add_css_class: "flat",
                                         #[watch]
-                                        set_sensitive: !model.busy && !model.rows.is_empty(),
+                                        set_sensitive: !model.testing && !model.rows.is_empty(),
                                         connect_clicked => NodeMsg::Test,
                                         #[watch]
                                         set_tooltip_text: Some(t!("nodes.test").as_ref()),
@@ -180,6 +182,7 @@ impl Component for Nodes {
             group: adw::PreferencesGroup::new(),
             rows: Vec::new(),
             busy: false,
+            testing: false,
             error: None,
             error_dialog,
             add: None,
@@ -253,7 +256,7 @@ impl Component for Nodes {
             }
             NodeMsg::Edited(EditorOutput::Updated) => sender.input(NodeMsg::Refresh),
             NodeMsg::Edited(EditorOutput::Unauthorized) => {
-                sender.output(()).unwrap();
+                sender.output(ServerEvent::Unauthorized).unwrap();
             }
             NodeMsg::EditorPopped => {
                 self.editor.take();
@@ -267,11 +270,10 @@ impl Component for Nodes {
                 sender.oneshot_command(async move { NodeCommand::Loaded(api.nodes().await) });
             }
             NodeMsg::Test => {
-                if self.busy || self.rows.is_empty() || self.editor.is_some() {
+                if self.testing || self.rows.is_empty() {
                     return;
                 }
-                self.busy = true;
-                self.error = None;
+                self.testing = true;
                 for row in &mut self.rows {
                     row.latency = Latency::Testing;
                 }
@@ -326,7 +328,7 @@ impl Component for Nodes {
             }
             NodeMsg::Added(AddOutput::Unauthorized) => {
                 self.add.take();
-                sender.output(()).unwrap();
+                sender.output(ServerEvent::Unauthorized).unwrap();
             }
             NodeMsg::ShowError => {
                 if let Some((key, error)) = &self.error {
@@ -350,26 +352,30 @@ impl Component for Nodes {
         sender: ComponentSender<Self>,
         root: &Self::Root,
     ) {
-        self.busy = false;
         let report_in_dialog = matches!(&result, NodeCommand::Deleted(_, Err(_)));
+        let catalog_changed = !matches!(&result, NodeCommand::Tested(_));
         let (key, result) = match result {
-            NodeCommand::Loaded(result) => (
-                "nodes.load_error",
-                result.map(|records| {
-                    for row in self.rows.drain(..) {
-                        self.group.remove(&row.widget);
-                    }
-                    for node in records {
-                        let row = NodeRow::new(node, sender.input_sender().clone());
-                        self.group.add(&row.widget);
-                        self.rows.push(row);
-                    }
-                    if root.is_mapped() && self.editor.is_none() {
-                        sender.input(NodeMsg::Test);
-                    }
-                }),
-            ),
+            NodeCommand::Loaded(result) => {
+                self.busy = false;
+                (
+                    "nodes.load_error",
+                    result.map(|records| {
+                        for row in self.rows.drain(..) {
+                            self.group.remove(&row.widget);
+                        }
+                        for node in records {
+                            let row = NodeRow::new(node, sender.input_sender().clone());
+                            self.group.add(&row.widget);
+                            self.rows.push(row);
+                        }
+                        if root.is_mapped() && self.editor.is_none() {
+                            sender.input(NodeMsg::Test);
+                        }
+                    }),
+                )
+            }
             NodeCommand::Tested(result) => {
+                self.testing = false;
                 for row in &mut self.rows {
                     row.latency = if result.is_ok() {
                         Latency::Untested
@@ -390,25 +396,34 @@ impl Component for Nodes {
                     }),
                 )
             }
-            NodeCommand::Deleted(id, result) => (
-                "nodes.delete_error",
-                result.map(|()| {
-                    let index = self.rows.iter().position(|row| row.node.id == id).unwrap();
-                    self.group.remove(&self.rows.remove(index).widget);
-                }),
-            ),
+            NodeCommand::Deleted(id, result) => {
+                self.busy = false;
+                (
+                    "nodes.delete_error",
+                    result.map(|()| {
+                        let index = self.rows.iter().position(|row| row.node.id == id).unwrap();
+                        self.group.remove(&self.rows.remove(index).widget);
+                    }),
+                )
+            }
         };
         match result {
-            Ok(()) => {}
+            Ok(()) => {
+                if catalog_changed {
+                    sender.output(ServerEvent::Changed).unwrap();
+                }
+            }
             Err(ApiError::Unauthorized) => {
-                sender.output(()).unwrap();
+                sender.output(ServerEvent::Unauthorized).unwrap();
             }
             Err(error) => {
                 tracing::warn!(endpoint = %self.api.endpoint(), operation = key, %error, "Node operation failed");
                 if report_in_dialog {
                     self.error_dialog.show_error(t!(key).as_ref(), &error, root);
                 }
-                self.error = Some((key, error));
+                if catalog_changed {
+                    self.error = Some((key, error));
+                }
             }
         }
     }

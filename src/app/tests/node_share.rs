@@ -26,7 +26,9 @@ pub fn shares_original_link(runtime: &tokio::runtime::Runtime) {
         .unwrap();
         api
     });
-    let controller = Nodes::builder().launch(api).detach();
+    let controller = Nodes::builder().launch(api).connect_receiver(|_, event| {
+        assert!(matches!(event, crate::ui::ServerEvent::Changed));
+    });
     let window = adw::ApplicationWindow::builder()
         .content(controller.widget())
         .default_width(500)

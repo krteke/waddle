@@ -94,6 +94,11 @@ stopping = "Stopping..."
 refresh = "Refresh Proxy Status"
 read_error = "Could not read proxy status."
 change_error = "Could not change proxy status."
+pending_changes = "Changes Pending"
+reload = "Reload"
+reload_config = "Reload Configuration"
+reloading = "Reloading..."
+reload_error = "Could not reload configuration."
 
 [config]
 back = "Back"

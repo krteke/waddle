@@ -1,3 +1,4 @@
+use super::ServerEvent;
 mod choice_list;
 mod details;
 mod dialogs;
@@ -69,7 +70,7 @@ pub struct ConfigUpdate {
 impl Component for Configs {
     type Init = Api;
     type Input = ConfigMsg;
-    type Output = ();
+    type Output = ServerEvent;
     type CommandOutput = ConfigUpdate;
 
     view! {
@@ -217,7 +218,7 @@ impl Component for Configs {
                 match output {
                     EditorOutput::Closed => return,
                     EditorOutput::Unauthorized => {
-                        sender.output(()).unwrap();
+                        sender.output(ServerEvent::Unauthorized).unwrap();
                         return;
                     }
                     EditorOutput::Saved => Operation::Refresh,
@@ -336,9 +337,12 @@ impl Component for Configs {
         }
 
         if unauthorized {
-            sender.output(()).unwrap();
-        } else if mutation_failed {
-            self.show_error(root);
+            sender.output(ServerEvent::Unauthorized).unwrap();
+        } else {
+            sender.output(ServerEvent::Changed).unwrap();
+            if mutation_failed {
+                self.show_error(root);
+            }
         }
     }
 

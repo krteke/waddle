@@ -94,6 +94,11 @@ stopping = "正在停止..."
 refresh = "刷新代理状态"
 read_error = "无法读取代理状态。"
 change_error = "无法更改代理状态。"
+pending_changes = "有待应用的更改"
+reload = "重载"
+reload_config = "重载配置"
+reloading = "正在重载…"
+reload_error = "无法重载配置。"
 
 [config]
 back = "返回"

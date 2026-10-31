@@ -117,7 +117,11 @@ pub fn latency_and_deletion(runtime: &tokio::runtime::Runtime) {
         .unwrap();
         api
     });
-    let controller = Nodes::builder().launch(api.clone()).detach();
+    let controller = Nodes::builder()
+        .launch(api.clone())
+        .connect_receiver(|_, event| {
+            assert!(matches!(event, crate::ui::ServerEvent::Changed));
+        });
     let stack = gtk::Stack::new();
     stack.add_named(&gtk::Label::new(Some("Other page")), Some("other"));
     stack.add_named(controller.widget(), Some("nodes"));
@@ -141,6 +145,58 @@ pub fn latency_and_deletion(runtime: &tokio::runtime::Runtime) {
     });
     wait_for(|| probe.requests.load(Ordering::SeqCst) == 1);
     capture(&window, "nodes-testing");
+    let reachable = find_widget::<adw::ActionRow>(&window, &|r| r.title() == "Reachable").unwrap();
+    let edit = find_widget::<gtk::Button>(&reachable, &|b| {
+        b.icon_name().as_deref() == Some("document-edit-symbolic")
+    })
+    .unwrap();
+    assert!(
+        edit.is_sensitive(),
+        "latency probes must not disable node editing"
+    );
+    assert!(
+        find_widget::<gtk::Button>(&reachable, &|b| b.icon_name().as_deref()
+            == Some("user-trash-symbolic"))
+        .unwrap()
+        .is_sensitive()
+    );
+    assert!(
+        find_widget::<gtk::Button>(&window, &|b| b.tooltip_text().as_deref()
+            == Some("Add Nodes"))
+        .unwrap()
+        .is_sensitive()
+    );
+    edit.emit_clicked();
+    wait_for(|| {
+        find_widget::<adw::NavigationPage>(&window, &|p| p.title() == "Edit Node" && p.is_mapped())
+            .is_some()
+    });
+    let editor =
+        find_widget::<adw::NavigationPage>(&window, &|p| p.title() == "Edit Node").unwrap();
+    fill(&editor, "Tag", "Edited during probe");
+    wait_for(|| {
+        find_widget::<gtk::Button>(&editor, &|b| {
+            b.label().as_deref() == Some("Save") && b.is_sensitive()
+        })
+        .is_some()
+    });
+    click(&editor, "Save");
+    wait_for(|| {
+        find_widget::<adw::ActionRow>(&window, &|r| r.title() == "Edited during probe").is_some()
+    });
+    assert_eq!(
+        probe.requests.load(Ordering::SeqCst),
+        1,
+        "editing must finish while the probe is still waiting"
+    );
+    assert!(
+        runtime
+            .block_on(api.nodes())
+            .unwrap()
+            .iter()
+            .any(|n| n.tag.as_deref() == Some("Edited during probe"))
+    );
+
     probe.release.add_permits(1);
     wait_for(|| {
         find_widget::<gtk::Label>(&window, &|l| l.is_mapped() && l.text().ends_with(" ms"))
@@ -205,7 +261,8 @@ pub fn latency_and_deletion(runtime: &tokio::runtime::Runtime) {
     runtime
         .block_on(api.remove_nodes(vec![remaining.id]))
         .unwrap();
-    let reachable = find_widget::<adw::ActionRow>(&window, &|r| r.title() == "Reachable").unwrap();
+    let reachable =
+        find_widget::<adw::ActionRow>(&window, &|r| r.title() == "Edited during probe").unwrap();
     click_icon(&reachable, "user-trash-symbolic");
     wait_for(|| window.visible_dialog().is_some());
     click(&window.visible_dialog().unwrap(), "Delete");

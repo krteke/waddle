@@ -16,7 +16,11 @@ pub fn create_and_edit(runtime: &tokio::runtime::Runtime) {
             .unwrap()
             .0
     });
-    let controller = Nodes::builder().launch(api.clone()).detach();
+    let controller = Nodes::builder()
+        .launch(api.clone())
+        .connect_receiver(|_, event| {
+            assert!(matches!(event, crate::ui::ServerEvent::Changed));
+        });
     let window = adw::ApplicationWindow::builder()
         .content(controller.widget())
         .default_width(700)

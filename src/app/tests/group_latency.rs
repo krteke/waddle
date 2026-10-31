@@ -48,7 +48,11 @@ pub fn member_latency_and_removal(runtime: &tokio::runtime::Runtime) {
         api.save_group(&original, &edited).await.unwrap();
         api
     });
-    let controller = Groups::builder().launch(api.clone()).detach();
+    let controller = Groups::builder()
+        .launch(api.clone())
+        .connect_receiver(|_, event| {
+            assert!(matches!(event, crate::ui::ServerEvent::Changed));
+        });
     let window = adw::ApplicationWindow::builder()
         .content(controller.widget())
         .default_width(700)

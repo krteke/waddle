@@ -1,3 +1,4 @@
+use super::ServerEvent;
 mod dialogs;
 mod editor;
 mod identity;
@@ -62,7 +63,7 @@ pub struct GroupReply {
 impl Component for Groups {
     type Init = Api;
     type Input = GroupMsg;
-    type Output = ();
+    type Output = ServerEvent;
     type CommandOutput = GroupReply;
     view! {
         adw::NavigationView {
@@ -216,7 +217,7 @@ impl Component for Groups {
                 match output {
                     EditorOutput::Closed => return,
                     EditorOutput::Unauthorized => {
-                        sender.output(()).unwrap();
+                        sender.output(ServerEvent::Unauthorized).unwrap();
                         return;
                     }
                     EditorOutput::Saved => Operation::Refresh,
@@ -317,9 +318,12 @@ impl Component for Groups {
         }
 
         if unauthorized {
-            sender.output(()).unwrap();
-        } else if mutation_failed {
-            self.show_error(root);
+            sender.output(ServerEvent::Unauthorized).unwrap();
+        } else {
+            sender.output(ServerEvent::Changed).unwrap();
+            if mutation_failed {
+                self.show_error(root);
+            }
         }
     }
 

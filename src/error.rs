@@ -105,6 +105,8 @@ pub enum ProxyError {
     Read(#[source] ApiError),
     #[error("Could not change proxy status: {0}")]
     Change(#[source] ApiError),
+    #[error("Could not reload configuration: {0}")]
+    Reload(#[source] ApiError),
 }
 
 impl Message for ProxyError {
@@ -112,6 +114,7 @@ impl Message for ProxyError {
         match self {
             Self::Read(_) => t!("proxy.read_error"),
             Self::Change(_) => t!("proxy.change_error"),
+            Self::Reload(_) => t!("proxy.reload_error"),
         }
         .to_string()
     }

@@ -3,7 +3,7 @@ use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
 
 use crate::{
-    api::Api,
+    api::{Api, DaeStatus},
     error::{ApiError, Message, ProxyError},
     ui::error_dialog::DialogExt,
 };
@@ -12,11 +12,13 @@ use crate::{
 enum Operation {
     Refresh,
     Set(bool),
+    Reload,
 }
 
 pub struct Proxy {
     api: Api,
-    running: Option<bool>,
+    status: Option<DaeStatus>,
+    refresh_pending: bool,
     pending: Option<Operation>,
     error: Option<ProxyError>,
     error_dialog: adw::AlertDialog,
@@ -27,13 +29,14 @@ pub struct Proxy {
 pub enum ProxyMsg {
     Refresh,
     SetRunning(bool),
+    Reload,
     Retranslate,
     ShowError,
 }
 
 #[derive(Debug)]
 pub struct ProxyUpdate {
-    running: Result<bool, ApiError>,
+    status: Result<DaeStatus, ApiError>,
     change_error: Option<ApiError>,
 }
 
@@ -57,13 +60,30 @@ impl Component for Proxy {
                     #[watch]
                     set_subtitle: &model.status_text(),
                     #[watch]
-                    set_sensitive: model.pending.is_none() && model.running.is_some(),
+                    set_sensitive: model.pending.is_none() && model.status.is_some(),
                     #[watch]
                     #[block_signal(switch_changed)]
-                    set_active: model.running.unwrap_or(false),
+                    set_active: model.status.as_ref().is_some_and(|s| s.running),
                     connect_active_notify[sender] => move |row| {
                         sender.input(ProxyMsg::SetRunning(row.is_active()));
                     } @switch_changed,
+                },
+                adw::ActionRow {
+                    set_title_lines: 0,
+                    #[watch]
+                    set_title: t!("proxy.pending_changes").as_ref(),
+                    #[watch]
+                    set_visible: model.status.as_ref().is_some_and(|s| s.modified),
+                    add_suffix = &gtk::Button {
+                        set_valign: gtk::Align::Center,
+                        #[watch]
+                        set_label: t!("proxy.reload").as_ref(),
+                        #[watch]
+                        set_tooltip_text: Some(t!("proxy.reload_config").as_ref()),
+                        #[watch]
+                        set_sensitive: model.pending.is_none(),
+                        connect_clicked => ProxyMsg::Reload,
+                    },
                 },
             },
             gtk::Box {
@@ -116,7 +136,8 @@ impl Component for Proxy {
         error_dialog.set_default_response(Some("close"));
         let model = Self {
             api,
-            running: None,
+            status: None,
+            refresh_pending: false,
             pending: None,
             error: None,
             error_dialog,
@@ -131,7 +152,14 @@ impl Component for Proxy {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         let operation = match message {
-            ProxyMsg::Refresh => Operation::Refresh,
+            ProxyMsg::Refresh => {
+                if self.pending.is_some() {
+                    self.refresh_pending = true;
+                    return;
+                }
+                Operation::Refresh
+            }
+            ProxyMsg::Reload => Operation::Reload,
             ProxyMsg::SetRunning(running) => Operation::Set(running),
             ProxyMsg::Retranslate => return,
             ProxyMsg::ShowError => {
@@ -152,11 +180,12 @@ impl Component for Proxy {
         sender.oneshot_command(async move {
             let change_error = match operation {
                 Operation::Set(running) => api.set_proxy_running(running).await.err(),
+                Operation::Reload => api.set_proxy_running(true).await.err(),
                 Operation::Refresh => None,
             };
 
             ProxyUpdate {
-                running: api.proxy_running().await,
+                status: api.proxy_status().await,
                 change_error,
             }
         });
@@ -168,16 +197,19 @@ impl Component for Proxy {
         sender: ComponentSender<Self>,
         root: &Self::Root,
     ) {
-        let expired = matches!(&result.running, Err(ApiError::Unauthorized))
+        let expired = matches!(&result.status, Err(ApiError::Unauthorized))
             || matches!(&result.change_error, Some(ApiError::Unauthorized));
 
-        self.pending = None;
-        self.error = result.change_error.map(ProxyError::Change);
+        let operation = self.pending.take().unwrap();
+        self.error = result.change_error.map(|error| match operation {
+            Operation::Reload => ProxyError::Reload(error),
+            _ => ProxyError::Change(error),
+        });
 
-        match result.running {
-            Ok(running) => self.running = Some(running),
+        match result.status {
+            Ok(status) => self.status = Some(status),
             Err(error) => {
-                self.running = None;
+                self.status = None;
                 tracing::warn!(endpoint = %self.api.endpoint(), %error, "Could not read proxy status");
                 if self.error.is_none() {
                     self.error = Some(ProxyError::Read(error));
@@ -185,14 +217,20 @@ impl Component for Proxy {
             }
         }
 
-        if let Some(ProxyError::Change(error)) = &self.error {
+        if let Some(ProxyError::Change(error) | ProxyError::Reload(error)) = &self.error {
             tracing::warn!(endpoint = %self.api.endpoint(), %error, "Could not change proxy status");
         }
 
         if expired {
             sender.output(()).unwrap();
-        } else if matches!(self.error, Some(ProxyError::Change(_))) {
+        } else if matches!(
+            self.error,
+            Some(ProxyError::Change(_) | ProxyError::Reload(_))
+        ) {
             self.show_error(root);
+        }
+        if std::mem::take(&mut self.refresh_pending) && !expired {
+            sender.input(ProxyMsg::Refresh);
         }
     }
 
@@ -210,7 +248,8 @@ impl Component for Proxy {
 impl Proxy {
     fn show_error(&self, parent: &gtk::Box) {
         let Some(error) = &self.error else { return };
-        let (ProxyError::Read(source) | ProxyError::Change(source)) = error;
+        let (ProxyError::Read(source) | ProxyError::Change(source) | ProxyError::Reload(source)) =
+            error;
 
         self.error_dialog
             .show_error(&error.user_message(), source, parent);
@@ -221,7 +260,8 @@ impl Proxy {
             Some(Operation::Refresh) => t!("proxy.checking"),
             Some(Operation::Set(true)) => t!("proxy.starting"),
             Some(Operation::Set(false)) => t!("proxy.stopping"),
-            None => match self.running {
+            Some(Operation::Reload) => t!("proxy.reloading"),
+            None => match self.status.as_ref().map(|s| s.running) {
                 Some(true) => t!("proxy.running"),
                 Some(false) => t!("proxy.stopped"),
                 None => t!("proxy.unknown"),

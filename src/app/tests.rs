@@ -217,6 +217,8 @@ fn server_management_and_authentication_lifecycle() {
     let settings = settings::tests::settings();
     settings.set_string("language", "en").unwrap();
     proxy::proxy_control(&runtime);
+    proxy::reload_control(&runtime);
+    proxy::routing_changes_refresh_proxy_status(&runtime);
     crate::ui::nodes::form_tests::transport_switch_preserves_separate_drafts();
     crate::ui::nodes::form_tests::tls_switch_validates_only_active_branch();
     crate::ui::nodes::form_tests::plugin_switch_constructs_only_selected_plugin();
