@@ -18,6 +18,7 @@ mod nodes;
 mod overview;
 mod proxy;
 mod routing;
+mod traffic;
 
 fn find_widget<W: IsA<gtk::Widget>>(
     root: &impl IsA<gtk::Widget>,
@@ -216,6 +217,7 @@ fn server_management_and_authentication_lifecycle() {
         .set_gtk_enable_animations(false);
     let settings = settings::tests::settings();
     settings.set_string("language", "en").unwrap();
+    traffic::live_statistics(&runtime);
     proxy::proxy_control(&runtime);
     proxy::reload_control(&runtime);
     proxy::routing_changes_refresh_proxy_status(&runtime);

@@ -1,0 +1,14 @@
+query TrafficOverview($windowSec: Int!, $maxPoints: Int!) {
+  general {
+    runtimeOverview(windowSec: $windowSec, maxPoints: $maxPoints) {
+      updatedAt
+      uploadRate
+      downloadRate
+      uploadTotal
+      downloadTotal
+      activeConnections
+      udpSessions
+      samples { timestamp uploadRate downloadRate }
+    }
+  }
+}

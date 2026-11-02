@@ -11,6 +11,7 @@ pub mod group;
 pub mod node;
 pub mod overview;
 pub mod routing;
+pub mod traffic;
 
 #[derive(GraphQLQuery)]
 #[graphql(

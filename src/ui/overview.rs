@@ -2,6 +2,8 @@ use adw::prelude::*;
 use relm4::{Sender, adw, gtk, prelude::*};
 use rust_i18n::t;
 
+use super::traffic::{Traffic, TrafficMsg};
+
 use crate::{
     api::{Api, overview::Summary},
     error::ApiError,
@@ -10,6 +12,7 @@ use crate::{
 
 pub struct Overview {
     api: Api,
+    traffic: Controller<Traffic>,
     username: String,
     pub proxy: adw::ActionRow,
     summary: Option<Summary>,
@@ -24,6 +27,7 @@ pub enum OverviewMsg {
     Retranslate,
     SignOut,
     ShowError,
+    TrafficUnauthorized,
 }
 #[derive(Debug)]
 pub enum OverviewOutput {
@@ -105,6 +109,8 @@ impl Component for Overview {
                             },
                         },
                     },
+                    #[local_ref]
+                    traffic -> adw::PreferencesGroup {},
                     adw::PreferencesGroup {
                         #[watch]
                         set_title: &t!("overview.selection"),
@@ -184,8 +190,13 @@ impl Component for Overview {
         let error_dialog = adw::AlertDialog::new(None, None);
         error_dialog.add_response("close", &t!("dialog.close"));
 
+        let traffic = Traffic::builder()
+            .launch(api.clone())
+            .forward(sender.input_sender(), |()| OverviewMsg::TrafficUnauthorized);
+
         let model = Self {
             api,
+            traffic,
             username,
             proxy: adw::ActionRow::new(),
             summary: None,
@@ -195,6 +206,7 @@ impl Component for Overview {
         };
 
         let proxy = &model.proxy;
+        let traffic = model.traffic.widget();
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
@@ -203,6 +215,7 @@ impl Component for Overview {
     fn update(&mut self, msg: OverviewMsg, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             OverviewMsg::Refresh => {
+                self.traffic.emit(TrafficMsg::Refresh);
                 if self.busy {
                     return;
                 }
@@ -217,7 +230,10 @@ impl Component for Overview {
             OverviewMsg::SignOut => {
                 sender.output(OverviewOutput::SignOut).unwrap();
             }
-            OverviewMsg::Retranslate => {}
+            OverviewMsg::Retranslate => self.traffic.emit(TrafficMsg::Retranslate),
+            OverviewMsg::TrafficUnauthorized => {
+                sender.output(OverviewOutput::Unauthorized).unwrap();
+            }
             OverviewMsg::ShowError => {
                 if let Some(error) = &self.error {
                     self.error_dialog

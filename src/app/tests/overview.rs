@@ -48,6 +48,13 @@ pub fn summary_follows_backend(
     let overview = config_row
         .ancestor(gtk::ScrolledWindow::static_type())
         .unwrap();
+    assert!(
+        find_widget::<adw::PreferencesGroup>(&overview, &|group| group.title()
+            == "Traffic Statistics")
+        .is_some(),
+        "the overview must show live traffic statistics"
+    );
+    wait_for(|| find_widget::<gtk::Label>(&overview, &|label| label.text() == "0 B/s").is_some());
     let nodes = find_widget::<adw::ActionRow>(&overview, &|r| r.title() == "Nodes").unwrap();
     let groups = find_widget::<adw::ActionRow>(&overview, &|r| r.title() == "Groups").unwrap();
     assert!(find_widget::<gtk::Label>(&nodes, &|l| l.text() == "1").is_some());

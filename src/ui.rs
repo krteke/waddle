@@ -10,6 +10,7 @@ pub mod proxy;
 mod qr_code;
 pub mod routing;
 pub mod server;
+mod traffic;
 pub mod workspace;
 
 #[derive(Debug)]
