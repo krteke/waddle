@@ -142,7 +142,7 @@ pub fn live_statistics(runtime: &tokio::runtime::Runtime) {
     mode.store(1, Ordering::SeqCst);
     wait_for(|| {
         find_widget::<gtk::Label>(&window, &|l| {
-            l.is_visible() && l.text() == "Statistics unavailable. Retrying…"
+            l.is_visible() && l.text() == rust_i18n::t!("traffic.unavailable").as_ref()
         })
         .is_some()
     });

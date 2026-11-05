@@ -5,6 +5,7 @@ use rust_i18n::t;
 use super::{
     ServerEvent,
     config::{ConfigMsg, Configs},
+    dns::{DnsConfigs, DnsMsg},
     groups::{GroupMsg, Groups},
     login_dialog::LoginDialog,
     nodes::{NodeMsg, Nodes},
@@ -48,6 +49,8 @@ pub struct Connection {
     group_stack: gtk::Stack,
     routings: Option<Controller<Routings>>,
     routing_stack: gtk::Stack,
+    dnss: Option<Controller<DnsConfigs>>,
+    dns_stack: gtk::Stack,
 }
 
 #[derive(Debug)]
@@ -73,6 +76,7 @@ impl Component for Connection {
     type Init = (
         adw::ApplicationWindow,
         Server,
+        gtk::Stack,
         gtk::Stack,
         gtk::Stack,
         gtk::Stack,
@@ -149,7 +153,16 @@ impl Component for Connection {
     }
 
     fn init(
-        (parent, server, overview_stack, config_stack, node_stack, group_stack, routing_stack): Self::Init,
+        (
+            parent,
+            server,
+            overview_stack,
+            config_stack,
+            node_stack,
+            group_stack,
+            routing_stack,
+            dns_stack,
+        ): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -181,6 +194,8 @@ impl Component for Connection {
             group_stack,
             routings: None,
             routing_stack,
+            dnss: None,
+            dns_stack,
         };
 
         let proxy_content = &model.proxy_content;
@@ -224,6 +239,10 @@ impl Component for Connection {
                 self.routing_stack.remove(routings.widget());
             }
             self.routing_stack.set_visible_child_name("placeholder");
+            if let Some(dnss) = self.dnss.take() {
+                self.dns_stack.remove(dnss.widget());
+            }
+            self.dns_stack.set_visible_child_name("placeholder");
         }
 
         match message {
@@ -262,6 +281,9 @@ impl Component for Connection {
             ConnectionMsg::Retranslate => {
                 if let Some(overview) = &self.overview {
                     overview.emit(OverviewMsg::Retranslate);
+                }
+                if let Some(dnss) = &self.dnss {
+                    dnss.emit(DnsMsg::Retranslate);
                 }
                 if let Some(routings) = &self.routings {
                     routings.emit(RoutingMsg::Retranslate);
@@ -364,6 +386,12 @@ impl Component for Connection {
                 self.routing_stack.add_child(routings.widget());
                 self.routing_stack.set_visible_child(routings.widget());
                 self.routings = Some(routings);
+                let dnss = DnsConfigs::builder()
+                    .launch(api.clone())
+                    .forward(sender.input_sender(), ConnectionMsg::Server);
+                self.dns_stack.add_child(dnss.widget());
+                self.dns_stack.set_visible_child(dnss.widget());
+                self.dnss = Some(dnss);
 
                 self.phase = Phase::Connected { api, username };
                 self.error = warning;
@@ -418,5 +446,9 @@ impl Component for Connection {
             self.routing_stack.remove(routings.widget());
         }
         self.routing_stack.set_visible_child_name("placeholder");
+        if let Some(dnss) = self.dnss.take() {
+            self.dns_stack.remove(dnss.widget());
+        }
+        self.dns_stack.set_visible_child_name("placeholder");
     }
 }

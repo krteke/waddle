@@ -1,0 +1,13 @@
+query Dnss {
+  dnss {
+    id name selected
+    dns {
+      string
+      upstream { key val }
+      routing {
+        request { rules { conditions { and { name not params { key val } } } outbound { name not params { key val } } } fallback { __typename ... on Plaintext { val } ... on Function { name not params { key val } } } }
+        response { rules { conditions { and { name not params { key val } } } outbound { name not params { key val } } } fallback { __typename ... on Plaintext { val } ... on Function { name not params { key val } } } }
+      }
+    }
+  }
+}

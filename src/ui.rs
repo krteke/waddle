@@ -1,5 +1,6 @@
 pub mod config;
 pub mod connection;
+pub mod dns;
 mod error_dialog;
 pub mod groups;
 mod latency;

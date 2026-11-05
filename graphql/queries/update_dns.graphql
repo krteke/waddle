@@ -1,0 +1,1 @@
+mutation UpdateDns($id: ID!, $dns: String!) { updateDns(id: $id, dns: $dns) { id } }

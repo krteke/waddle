@@ -1,0 +1,1 @@
+mutation RemoveDns($id: ID!) { removeDns(id: $id) }

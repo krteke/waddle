@@ -97,7 +97,6 @@ impl Component for Editor {
                             set_title: t!("config.name").as_ref(),
                             set_use_markup: false,
                             add_suffix = &gtk::Label { set_label: "*", add_css_class: "error" },
-                            set_editable: model.routing_id.is_none(),
                             connect_changed => EditorMsg::Changed,
                         },
                         gtk::Label {
@@ -329,10 +328,20 @@ impl Component for Editor {
 
                 let name = self.name.text().trim().to_owned();
                 let text = self.text();
+                let rename = name != self.original_name;
+                let rules_changed = text != self.original_text;
 
                 sender.oneshot_command(async move {
                     match id {
-                        Some(id) => api.update_routing(id, text).await,
+                        Some(id) => {
+                            if rules_changed {
+                                api.update_routing(id.clone(), text).await?;
+                            }
+                            if rename {
+                                api.rename_routing(id, name).await?;
+                            }
+                            Ok(())
+                        }
                         None => api.create_routing(name, text).await,
                     }
                 });

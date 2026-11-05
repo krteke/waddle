@@ -183,6 +183,12 @@ pub fn manage(runtime: &tokio::runtime::Runtime, window: &adw::ApplicationWindow
     wait_for(|| !button(&editor, "Reset").is_sensitive());
     modes.set_active(1);
     wait_for(|| text.is_mapped());
+    let name = find_widget::<adw::EntryRow>(&editor, &|r| r.title() == "Name").unwrap();
+    assert!(
+        name.is_editable(),
+        "routing names must be editable in the editor"
+    );
+    name.set_text("route-updated");
     text.buffer().set_text("not valid routing syntax");
     wait_for(|| button(&editor, "Save").is_sensitive());
     click(&editor, "Save");
@@ -195,6 +201,11 @@ pub fn manage(runtime: &tokio::runtime::Runtime, window: &adw::ApplicationWindow
     click(&error, "Close");
     wait_for(|| window.visible_dialog().as_ref() == Some(&editor));
     assert_eq!(buffer_text(&text.buffer()), "not valid routing syntax");
+    assert_eq!(name.text(), "route-updated");
+    assert_eq!(
+        runtime.block_on(api.routings()).unwrap().routings[0].name,
+        "route-test"
+    );
     let custom = "# Keep my comment\ndomain(example.com) -> direct\nfallback: proxy";
     text.buffer().set_text(custom);
     themes(window, "routing-advanced");
@@ -208,14 +219,32 @@ pub fn manage(runtime: &tokio::runtime::Runtime, window: &adw::ApplicationWindow
             .trim(),
         custom
     );
-    click_icon(&row(&page, "route-test"), "document-edit-symbolic");
+    wait_row(&page, "route-updated");
+    click_icon(&row(&page, "route-updated"), "document-edit-symbolic");
     let editor = current_editor(window);
     wait_for(|| find_widget::<gtk::TextView>(&editor, &|t| t.is_mapped()).is_some());
     assert!(!button(&editor, "Reset").is_sensitive());
-    click(&editor, "Cancel");
+    fill(&editor, "Name", "discarded-name");
+    wait_for(|| button(&editor, "Reset").is_sensitive());
+    click(&editor, "Reset");
+    wait_for(|| !button(&editor, "Reset").is_sensitive());
+    let name = find_widget::<adw::EntryRow>(&editor, &|r| r.title() == "Name").unwrap();
+    assert_eq!(name.text(), "route-updated");
+    name.set_text("");
+    wait_for(|| button(&editor, "Save").is_sensitive());
+    click(&editor, "Save");
+    wait_for(|| name.has_css_class("error"));
+    name.set_text("route-editor-name");
+    click(&editor, "Save");
     wait_for(|| window.visible_dialog().is_none());
+    wait_row(&page, "route-editor-name");
+    let renamed = runtime.block_on(api.routings()).unwrap().routings.remove(0);
+    assert_eq!(renamed.id, created.id);
+    assert!(renamed.selected);
+    assert_eq!(renamed.name, "route-editor-name");
+    assert_eq!(renamed.routing.string.trim(), custom);
 
-    let actions = menu(&page, "route-test");
+    let actions = menu(&page, "route-editor-name");
     click(&actions, "Rename");
     let rename = alert(window, "Rename Routing");
     find_widget::<gtk::Entry>(&rename, &|_| true)

@@ -1,0 +1,1 @@
+mutation CreateDns($name: String!, $dns: String!) { createDns(name: $name, dns: $dns) { id } }

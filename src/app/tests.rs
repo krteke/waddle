@@ -9,6 +9,7 @@ use gtk::glib;
 use std::time::{Duration, Instant};
 
 mod config;
+mod dns;
 mod group_latency;
 mod groups;
 mod node_actions;
@@ -508,6 +509,7 @@ fn server_management_and_authentication_lifecycle() {
     wait_for(|| connected(window, "Home"));
     overview::summary_follows_backend(&runtime, window, &home);
     routing::manage(&runtime, window, &home);
+    dns::manage(&runtime, window, &home);
     groups::manage_groups(&runtime, window, &home);
     nodes::add_and_list(&runtime, window, &home);
     config::selection_and_details(&runtime, window, &home);

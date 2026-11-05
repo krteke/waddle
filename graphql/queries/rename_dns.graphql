@@ -1,0 +1,1 @@
+mutation RenameDns($id: ID!, $name: String!) { renameDns(id: $id, name: $name) }

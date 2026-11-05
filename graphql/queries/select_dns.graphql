@@ -1,0 +1,1 @@
+mutation SelectDns($id: ID!) { selectDns(id: $id) }
